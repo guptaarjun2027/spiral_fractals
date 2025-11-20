@@ -64,3 +64,23 @@ results/        # Computed tables and fits
 
 
 
+---
+
+## Running `scripts/make_image.py`
+
+When passing complex values to the `--c` argument that begin with a minus sign (for example `-0.4+0.6j`), your shell or `argparse` may interpret the value as another option. Quote the value to pass it as a single argument. Example:
+
+```bash
+python scripts/make_image.py --map quadratic --c='-0.4+0.6j' --xmin -2 --xmax 1 --ymin -1 --ymax 1 --outfile figures/quad_test.png
+```
+
+You can also use the equals-style form which avoids ambiguity:
+
+```bash
+python scripts/make_image.py --map quadratic --c='-0.4+0.6j' --xmin -2 --xmax 1 --ymin -1 --ymax 1 --outfile figures/quad_test.png
+```
+
+This repository also accepts `step_fn`-style rendering (used internally by `scripts/make_image.py`) so scripts can pass a callable that returns either a trajectory array or a `(n_iters, last_z)` tuple.
+
+
+

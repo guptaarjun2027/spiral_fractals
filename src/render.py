@@ -1,7 +1,42 @@
 # src/render.py
 import numpy as np
 from PIL import Image
-from .iterators import pick_iterator
+try:
+    from .iterators import pick_iterator
+except Exception:
+    # Fallback: define pick_iterator here using iterate_map/radial_add in case
+    # the symbol isn't available due to import ordering or older files.
+    from .iterators import iterate_map, radial_add
+
+    def pick_iterator(map_name: str):
+        name = map_name.lower()
+
+        if name == "quadratic":
+            def iterator(z0, c, max_iter, escape_radius):
+                traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="quadratic", escape_radius=escape_radius)
+                n = len(traj)
+                last = traj[-1] if n > 0 else z0
+                return n, last
+            return iterator
+
+        if name == "exp":
+            def iterator(z0, c, max_iter, escape_radius):
+                traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="exp", escape_radius=escape_radius)
+                n = len(traj)
+                last = traj[-1] if n > 0 else z0
+                return n, last
+            return iterator
+
+        if name == "controlled":
+            def iterator(z0, c, max_iter, escape_radius):
+                radial = radial_add(0.05)
+                traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="controlled", radial_update=radial, omega=0.25, escape_radius=escape_radius)
+                n = len(traj)
+                last = traj[-1] if n > 0 else z0
+                return n, last
+            return iterator
+
+        raise ValueError(f"Unknown map name: {map_name}")
 from .coloring import color_by_iters, color_by_angle, color_by_smooth
 
 def make_grid(xmin, xmax, ymin, ymax, width, height):
