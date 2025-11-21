@@ -84,8 +84,8 @@ print(f"Calculation finished in {end_time - start_time:.2f} seconds.")
 
 plt.figure(figsize=(10, 10))
 
-# Use 'twilight' colormap for good visual contrast
-plt.imshow(M, cmap='twilight', 
+# CHANGE: Switched from 'twilight' to 'magma' for higher contrast
+plt.imshow(M, cmap='magma', 
            extent=[Z_MIN_R, Z_MAX_R, Z_MIN_I, Z_MAX_I])
 
 # Title shows the fixed constant C and the starting r₀ condition.
