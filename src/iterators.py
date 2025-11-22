@@ -1,4 +1,31 @@
 import numpy as np
+from dataclasses import dataclass
+
+# -----------------------------
+# Controlled spiral parameters
+# -----------------------------
+@dataclass
+class ControlledConfig:
+    radial_mode: str = "additive"   # "additive" (Option A) or "power" (Option B)
+    delta: float = 0.01             # δ for additive
+    alpha: float = 1.05             # α for power
+    omega: float = 0.2              # ω base rotation
+    phase_eps: float = 0.0          # strength of nonlinear φ(z)
+
+def default_phi(z: complex, phase_eps: float = 0.0):
+    """Small nonlinear phase term φ(z). Keep tiny for coherent arms."""
+    if phase_eps == 0.0:
+        return 0.0
+    # Smooth, bounded perturbation using angle + magnitude
+    return phase_eps * np.sin(np.angle(z)) * np.tanh(np.abs(z))
+
+def radial_add(delta: float):
+    return lambda r: r + delta
+
+def radial_pow(alpha: float):
+    # protect against r ~ 0
+    return lambda r: np.maximum(r, 1e-8) ** alpha
+
 
 def iterate_map(
     z0: complex,
@@ -9,6 +36,11 @@ def iterate_map(
     omega: float = 0.2,
     phi=None,
     escape_radius: float = 1e6,
+    # ---- NEW controlled spiral args (all optional) ----
+    radial_mode: str = "additive",
+    delta: float = 0.01,
+    alpha: float = 1.05,
+    phase_eps: float = 0.0,
 ):
     """
     Iterate a complex map starting from z0.
@@ -16,12 +48,26 @@ def iterate_map(
     mode:
         "quadratic"  -> z_{n+1} = z_n^2 + c
         "exp"        -> z_{n+1} = exp(z_n) + c
-        "controlled" -> polar update with custom radial and angular rules
+        "controlled" -> polar update with controlled radius + angle
+
+    Controlled radius options:
+        Option A (additive): r_{n+1} = r_n + δ
+        Option B (power):    r_{n+1} = r_n^α
+
+    Controlled angle:
+        θ_{n+1} = θ_n + ω + φ(z_n)
     """
+
+    # Back-compat: if caller provides radial_update/phi explicitly, use them.
     if phi is None:
-        phi = lambda z: 0.0
+        phi = lambda z: default_phi(z, phase_eps)
     if radial_update is None:
-        radial_update = lambda r: r
+        if radial_mode == "additive":
+            radial_update = radial_add(delta)
+        elif radial_mode == "power":
+            radial_update = radial_pow(alpha)
+        else:
+            raise ValueError("radial_mode must be 'additive' or 'power'")
 
     z = z0
     traj = []
@@ -36,7 +82,7 @@ def iterate_map(
             th = np.angle(z)
             r = radial_update(r)
             th = th + omega + phi(z)
-            z = r * np.exp(1j * th)
+            z = r * np.exp(1j * th) + c
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
@@ -48,23 +94,19 @@ def iterate_map(
     return np.array(traj, dtype=np.complex128)
 
 
-def radial_add(delta: float):
-    return lambda r: r + delta
+def pick_iterator(map_name: str, controlled_cfg: ControlledConfig | None = None):
+    """
+    Return an iterator function that matches the renderer's expected signature:
+        iterator(z0, c, max_iter, escape_radius) -> (n_iters, last_z)
 
-
-def radial_pow(alpha: float):
-    return lambda r: r ** alpha
-
-
-def pick_iterator(map_name: str):
-    """Return an iterator function that matches the renderer's expected signature:
-    iterator(z0, c, max_iter, escape_radius) -> (n_iters, last_z)
+    controlled_cfg lets the sweep pass parameters into controlled mode.
     """
     name = map_name.lower()
 
     if name == "quadratic":
         def iterator(z0, c, max_iter, escape_radius):
-            traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="quadratic", escape_radius=escape_radius)
+            traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="quadratic",
+                              escape_radius=escape_radius)
             n = len(traj)
             last = traj[-1] if n > 0 else z0
             return n, last
@@ -72,19 +114,34 @@ def pick_iterator(map_name: str):
 
     if name == "exp":
         def iterator(z0, c, max_iter, escape_radius):
-            traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="exp", escape_radius=escape_radius)
+            traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="exp",
+                              escape_radius=escape_radius)
             n = len(traj)
             last = traj[-1] if n > 0 else z0
             return n, last
         return iterator
 
     if name == "controlled":
+        if controlled_cfg is None:
+            controlled_cfg = ControlledConfig()
+
         def iterator(z0, c, max_iter, escape_radius):
-            radial = radial_add(0.05)
-            traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="controlled", radial_update=radial, omega=0.25, escape_radius=escape_radius)
+            traj = iterate_map(
+                z0=z0,
+                c=c,
+                max_iter=max_iter,
+                mode="controlled",
+                radial_mode=controlled_cfg.radial_mode,
+                delta=controlled_cfg.delta,
+                alpha=controlled_cfg.alpha,
+                omega=controlled_cfg.omega,
+                phase_eps=controlled_cfg.phase_eps,
+                escape_radius=escape_radius,
+            )
             n = len(traj)
             last = traj[-1] if n > 0 else z0
             return n, last
+
         return iterator
 
     raise ValueError(f"Unknown map name: {map_name}")

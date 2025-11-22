@@ -1,149 +1,126 @@
-# src/render.py
 import numpy as np
-from PIL import Image
+
 try:
-    from .iterators import pick_iterator
+    from src.iterators import pick_iterator
 except Exception:
-    # Fallback: define pick_iterator here using iterate_map/radial_add in case
-    # the symbol isn't available due to import ordering or older files.
-    from .iterators import iterate_map, radial_add
+    # fallback if running as script without package context
+    from iterators import pick_iterator
 
-    def pick_iterator(map_name: str):
-        name = map_name.lower()
 
-        if name == "quadratic":
-            def iterator(z0, c, max_iter, escape_radius):
-                traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="quadratic", escape_radius=escape_radius)
-                n = len(traj)
-                last = traj[-1] if n > 0 else z0
-                return n, last
-            return iterator
+def _colorize_iters(iters, max_iter):
+    """Map iteration counts to grayscale RGB."""
+    iters = np.asarray(iters, dtype=np.float32)
+    norm = iters / max_iter
+    # invert so interior is dark, exterior bright (looks nicer)
+    norm = 1.0 - norm
+    gray = (255 * norm).clip(0, 255).astype(np.uint8)
+    return np.stack([gray, gray, gray], axis=-1)
 
-        if name == "exp":
-            def iterator(z0, c, max_iter, escape_radius):
-                traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="exp", escape_radius=escape_radius)
-                n = len(traj)
-                last = traj[-1] if n > 0 else z0
-                return n, last
-            return iterator
 
-        if name == "controlled":
-            def iterator(z0, c, max_iter, escape_radius):
-                radial = radial_add(0.05)
-                traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="controlled", radial_update=radial, omega=0.25, escape_radius=escape_radius)
-                n = len(traj)
-                last = traj[-1] if n > 0 else z0
-                return n, last
-            return iterator
-
-        raise ValueError(f"Unknown map name: {map_name}")
-from .coloring import color_by_iters, color_by_angle, color_by_smooth
-
-def make_grid(xmin, xmax, ymin, ymax, width, height):
+def _colorize_continuous(last_z):
     """
-    Returns a complex grid Z0 with shape (height, width).
+    Continuous fallback coloring based on magnitude and angle of last_z.
+    Produces contrast even if iters are constant.
     """
-    xs = np.linspace(xmin, xmax, width, dtype=np.float64)
-    ys = np.linspace(ymin, ymax, height, dtype=np.float64)
-    X, Y = np.meshgrid(xs, ys)
-    return X + 1j * Y
+    last_z = np.asarray(last_z, dtype=np.complex128)
 
-def render_image(map_name: str,
-                 c: complex,
-                 xmin: float, xmax: float, ymin: float, ymax: float,
-                 width: int, height: int,
-                 max_iter: int = 200,
-                 escape_radius: float = 1e6,
-                 color_mode: str = "iters",
-                 power_hint: float = 2.0):
+    mag = np.abs(last_z)
+    ang = np.angle(last_z)
+
+    # log magnitude for dynamic range
+    mag_log = np.log1p(mag)
+    mag_norm = mag_log / (mag_log.max() + 1e-9)
+
+    # angle in [0,1]
+    ang_norm = (ang + np.pi) / (2 * np.pi)
+
+    # simple HSV-ish mapping without extra deps
+    r = (mag_norm * 255).astype(np.uint8)
+    g = (ang_norm * 255).astype(np.uint8)
+    b = ((1 - mag_norm) * 255).astype(np.uint8)
+
+    return np.stack([r, g, b], axis=-1)
+
+
+def render_grid(
+    *,
+    # either give map_name+c OR a step_fn
+    map_name=None,
+    c=0 + 0j,
+    step_fn=None,
+
+    xmin=-2.5, xmax=2.5,
+    ymin=-2.5, ymax=2.5,
+    width=512, height=512,
+    max_iter=300,
+    escape_radius=10.0,
+    color_mode="iters",
+):
     """
-    Render an image for the selected map.
-    Important: choose [xmin,xmax] and [ymin,ymax] with radii > 1 to seed |z0| > 1.
+    Render a fractal grid.
+
+    Compatible with your existing calls:
+      render_grid(map_name="quadratic", c=..., ...)
+      render_grid(step_fn=..., ...)
+
+    color_mode:
+      "iters"       -> grayscale by escape iters (default)
+      "continuous"  -> magnitude/angle based
+      "auto"        -> uses iters if varied; otherwise continuous fallback
     """
-    iterator = pick_iterator(map_name)
-    Z0 = make_grid(xmin, xmax, ymin, ymax, width, height)
-    iters = np.zeros((height, width), dtype=np.int32)
-    lastz = np.zeros((height, width), dtype=np.complex128)
 
-    # Iterate per pixel (vectorized loop over rows to keep memory reasonable)
-    for i in range(height):
-        for j in range(width):
-            n, zlast = iterator(Z0[i, j], c, max_iter, escape_radius)
-            iters[i, j] = n
-            lastz[i, j] = zlast
-
-    # Color
-    mode = color_mode.lower()
-    if mode == "iters":
-        rgb = color_by_iters(iters, max_iter)
-    elif mode == "angle":
-        rgb = color_by_angle(lastz)
-    elif mode == "smooth":
-        rgb = color_by_smooth(iters, lastz, power_hint=power_hint, max_iter=max_iter)
-    else:
-        raise ValueError("color_mode must be one of: iters, angle, smooth")
-
-    return Image.fromarray(rgb)
-
-
-def render_grid(*,
-                step_fn=None,
-                map_name: str = None,
-                c: complex = None,
-                xmin: float = None, xmax: float = None, ymin: float = None, ymax: float = None,
-                width: int = None, height: int = None,
-                max_iter: int = 200,
-                escape_radius: float = 1e6,
-                color_mode: str = "iters",
-                power_hint: float = 2.0):
-    """Return an RGB NumPy array (height, width, 3).
-
-    Two modes supported:
-    - If `step_fn` is provided: it should be a callable taking `z0` and returning either
-      a trajectory array (np.array of complex) or a tuple `(n_iters, last_z)`.
-    - Otherwise, `map_name` must be provided and the function will use `pick_iterator`
-      to obtain a per-pixel iterator.
-    """
+    # choose iterator
     if step_fn is None:
         if map_name is None:
-            raise ValueError("Either step_fn or map_name must be provided")
+            raise ValueError("Provide either map_name or step_fn.")
         iterator = pick_iterator(map_name)
-        use_callable = False
+        def _step(z0):
+            return iterator(z0, c, max_iter, escape_radius)
     else:
-        iterator = step_fn
-        use_callable = True
+        # step_fn should be a callable that takes (z0, c, max_iter, escape_radius)
+        # or a pre-bound function that only takes z0
+        import inspect
+        sig = inspect.signature(step_fn)
+        if len(sig.parameters) == 1:
+            # Already bound or only takes z0
+            def _step(z0):
+                return step_fn(z0)
+        else:
+            # Expects full signature
+            def _step(z0):
+                return step_fn(z0, c, max_iter, escape_radius)
 
-    Z0 = make_grid(xmin, xmax, ymin, ymax, width, height)
+    xs = np.linspace(xmin, xmax, width)
+    ys = np.linspace(ymin, ymax, height)
+
     iters = np.zeros((height, width), dtype=np.int32)
     lastz = np.zeros((height, width), dtype=np.complex128)
 
-    for i in range(height):
-        for j in range(width):
-            z0 = Z0[i, j]
-            if use_callable:
-                out = iterator(z0)
-                # step_fn from scripts returns trajectory arrays, but other callables
-                # may return (n, lastz). Handle both.
-                if isinstance(out, tuple) and len(out) == 2:
-                    n, zlast = out
-                else:
-                    traj = np.asarray(out)
-                    n = len(traj)
-                    zlast = traj[-1] if n > 0 else z0
-            else:
-                n, zlast = iterator(z0, c, max_iter, escape_radius)
+    for j, y in enumerate(ys):
+        for i, x in enumerate(xs):
+            z0 = complex(x, y)
+            n, last = _step(z0)
+            iters[j, i] = n
+            lastz[j, i] = last
 
-            iters[i, j] = n
-            lastz[i, j] = zlast
+    # decide coloring
+    if color_mode == "iters":
+        return _colorize_iters(iters, max_iter)
 
-    mode = color_mode.lower()
-    if mode == "iters":
-        rgb = color_by_iters(iters, max_iter)
-    elif mode == "angle":
-        rgb = color_by_angle(lastz)
-    elif mode == "smooth":
-        rgb = color_by_smooth(iters, lastz, power_hint=power_hint, max_iter=max_iter)
-    else:
-        raise ValueError("color_mode must be one of: iters, angle, smooth")
+    if color_mode == "continuous":
+        return _colorize_continuous(lastz)
 
-    return rgb
+    if color_mode == "auto":
+        if np.std(iters) < 1e-6:
+            return _colorize_continuous(lastz)
+        return _colorize_iters(iters, max_iter)
+
+    # fallback: auto
+    if np.std(iters) < 1e-6:
+        return _colorize_continuous(lastz)
+    return _colorize_iters(iters, max_iter)
+
+
+# Some repos used render_fractal instead of render_grid
+def render_fractal(**kwargs):
+    return render_grid(**kwargs)
