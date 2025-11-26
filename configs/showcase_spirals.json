@@ -1,0 +1,125 @@
+{
+    "description": "High-quality showcase spirals with diverse aesthetic parameters",
+    "spirals": [
+        {
+            "name": "tight_2arm_additive",
+            "description": "Tight 2-arm spiral with additive growth",
+            "k_arms": 2,
+            "radial_mode": "additive",
+            "delta_r": 0.003,
+            "omega": 0.942477796076938,
+            "phase_eps": 0.01,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "loose_2arm_additive",
+            "description": "Loose 2-arm spiral with additive growth",
+            "k_arms": 2,
+            "radial_mode": "additive",
+            "delta_r": 0.010,
+            "omega": 0.628318530717959,
+            "phase_eps": 0.02,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "tight_3arm_additive",
+            "description": "Tight 3-arm spiral with additive growth",
+            "k_arms": 3,
+            "radial_mode": "additive",
+            "delta_r": 0.005,
+            "omega": 0.942477796076938,
+            "phase_eps": 0.01,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "loose_3arm_additive",
+            "description": "Loose 3-arm spiral with additive growth",
+            "k_arms": 3,
+            "radial_mode": "additive",
+            "delta_r": 0.012,
+            "omega": 0.785398163397448,
+            "phase_eps": 0.02,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "dense_4arm_additive",
+            "description": "Dense 4-arm spiral with additive growth",
+            "k_arms": 4,
+            "radial_mode": "additive",
+            "delta_r": 0.004,
+            "omega": 1.099557428756428,
+            "phase_eps": 0.01,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "sparse_5arm_additive",
+            "description": "Sparse 5-arm spiral with additive growth",
+            "k_arms": 5,
+            "radial_mode": "additive",
+            "delta_r": 0.008,
+            "omega": 0.785398163397448,
+            "phase_eps": 0.02,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "tight_3arm_power",
+            "description": "Tight 3-arm spiral with power-law growth",
+            "k_arms": 3,
+            "radial_mode": "power",
+            "alpha": 1.02,
+            "omega": 0.942477796076938,
+            "phase_eps": 0.01,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "loose_3arm_power",
+            "description": "Loose 3-arm spiral with power-law growth",
+            "k_arms": 3,
+            "radial_mode": "power",
+            "alpha": 1.04,
+            "omega": 0.628318530717959,
+            "phase_eps": 0.02,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "ultra_tight_2arm",
+            "description": "Ultra-tight 2-arm spiral with minimal growth",
+            "k_arms": 2,
+            "radial_mode": "additive",
+            "delta_r": 0.001,
+            "omega": 1.099557428756428,
+            "phase_eps": 0.005,
+            "grid_size": 1024,
+            "max_iter": 500,
+            "escape_radius": 80.0
+        },
+        {
+            "name": "wide_6arm_additive",
+            "description": "Wide 6-arm spiral with moderate growth",
+            "k_arms": 6,
+            "radial_mode": "additive",
+            "delta_r": 0.006,
+            "omega": 0.942477796076938,
+            "phase_eps": 0.015,
+            "grid_size": 1024,
+            "max_iter": 400,
+            "escape_radius": 80.0
+        }
+    ]
+}

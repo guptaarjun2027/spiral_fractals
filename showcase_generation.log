@@ -1,0 +1,194 @@
+/Users/charannagaram/spiral_fractals/scripts/generate_showcase.py:75: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` instead.
+  colormap = cm.get_cmap('twilight')
+Generating 10 showcase spirals...
+Output directory: /Users/charannagaram/spiral_fractals/figures/best
+
+[1/10] tight_2arm_additive
+  Tight 2-arm spiral with additive growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/tight_2arm_additive.png
+
+[2/10] loose_2arm_additive
+  Loose 2-arm spiral with additive growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/loose_2arm_additive.png
+
+[3/10] tight_3arm_additive
+  Tight 3-arm spiral with additive growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/tight_3arm_additive.png
+
+[4/10] loose_3arm_additive
+  Loose 3-arm spiral with additive growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/loose_3arm_additive.png
+
+[5/10] dense_4arm_additive
+  Dense 4-arm spiral with additive growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/dense_4arm_additive.png
+
+[6/10] sparse_5arm_additive
+  Sparse 5-arm spiral with additive growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/sparse_5arm_additive.png
+
+[7/10] tight_3arm_power
+  Tight 3-arm spiral with power-law growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/tight_3arm_power.png
+
+[8/10] loose_3arm_power
+  Loose 3-arm spiral with power-law growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/loose_3arm_power.png
+
+[9/10] ultra_tight_2arm
+  Ultra-tight 2-arm spiral with minimal growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/ultra_tight_2arm.png
+
+[10/10] wide_6arm_additive
+  Wide 6-arm spiral with moderate growth
+  Generating 1024x1024 grid...
+    Row 0/1024
+    Row 100/1024
+    Row 200/1024
+    Row 300/1024
+    Row 400/1024
+    Row 500/1024
+    Row 600/1024
+    Row 700/1024
+    Row 800/1024
+    Row 900/1024
+    Row 1000/1024
+  Rendering image...
+  ✓ Saved to /Users/charannagaram/spiral_fractals/figures/best/wide_6arm_additive.png
+
+============================================================
+✓ Showcase spiral generation complete!
+✓ Generated 10 images in /Users/charannagaram/spiral_fractals/figures/best
+
+Parameter Summary:
+------------------------------------------------------------
+Name                      Arms   Mode       δr/α     ω       
+------------------------------------------------------------
+tight_2arm_additive       2      additive   0.003    0.942   
+loose_2arm_additive       2      additive   0.010    0.628   
+tight_3arm_additive       3      additive   0.005    0.942   
+loose_3arm_additive       3      additive   0.012    0.785   
+dense_4arm_additive       4      additive   0.004    1.100   
+sparse_5arm_additive      5      additive   0.008    0.785   
+tight_3arm_power          3      power      1.02     0.942   
+loose_3arm_power          3      power      1.04     0.628   
+ultra_tight_2arm          2      additive   0.001    1.100   
+wide_6arm_additive        6      additive   0.006    0.942   
+------------------------------------------------------------

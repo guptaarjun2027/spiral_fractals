@@ -1,0 +1,17 @@
+{
+  "description": "Best controlled spiral parameters for clean, high-quality spirals",
+  "map_type": "controlled",
+  "radial_mode": "additive",
+  "delta_r": 0.006,
+  "alpha": 1.02,
+  "omega": 0.942477796076938,
+  "phase_eps": 0.01,
+  "grid_size": 512,
+  "max_iter": 350,
+  "escape_radius": 80.0,
+  "color_mode": "auto",
+  "xmin": -2.5,
+  "xmax": 2.5,
+  "ymin": -2.5,
+  "ymax": 2.5
+}
