@@ -1,0 +1,14 @@
+{
+  "description": "Full parameter sweep for comprehensive analysis",
+  "sweep_type": "controlled",
+  "flags": ["--controlled-only", "--full"],
+  "delta_r_values": [0.001, 0.003, 0.006, 0.01, 0.015],
+  "alpha_values": [1.01, 1.02, 1.04, 1.06],
+  "omega_values": [0.628, 0.785, 0.942, 1.099, 1.257],
+  "phase_eps_values": [0.0, 0.01, 0.02],
+  "radial_modes": ["additive", "power"],
+  "grid_size": 256,
+  "max_iter": 350,
+  "escape_radius": 80.0,
+  "comment": "omega values are [0.2π, 0.25π, 0.3π, 0.35π, 0.4π] in radians"
+}

@@ -1,48 +1,147 @@
-# src/iterators.py
 import numpy as np
-from numba import njit
+from dataclasses import dataclass
 
-@njit(cache=True, fastmath=True)
-def iterate_quadratic(z0: complex, c: complex, max_iter: int, escape_radius: float):
+# -----------------------------
+# Controlled spiral parameters
+# -----------------------------
+@dataclass
+class ControlledConfig:
+    radial_mode: str = "additive"   # "additive" (Option A) or "power" (Option B)
+    delta: float = 0.01             # δ for additive
+    alpha: float = 1.05             # α for power
+    omega: float = 0.2              # ω base rotation
+    phase_eps: float = 0.0          # strength of nonlinear φ(z)
+
+def default_phi(z: complex, phase_eps: float = 0.0):
+    """Small nonlinear phase term φ(z). Keep tiny for coherent arms."""
+    if phase_eps == 0.0:
+        return 0.0
+    # Smooth, bounded perturbation using angle + magnitude
+    return phase_eps * np.sin(np.angle(z)) * np.tanh(np.abs(z))
+
+def radial_add(delta: float):
+    return lambda r: r + delta
+
+def radial_pow(alpha: float):
+    # protect against r ~ 0
+    return lambda r: np.maximum(r, 1e-8) ** alpha
+
+
+def iterate_map(
+    z0: complex,
+    c: complex,
+    max_iter: int = 200,
+    mode: str = "quadratic",
+    radial_update=None,
+    omega: float = 0.2,
+    phi=None,
+    escape_radius: float = 1e6,
+    # ---- NEW controlled spiral args (all optional) ----
+    radial_mode: str = "additive",
+    delta: float = 0.01,
+    alpha: float = 1.05,
+    phase_eps: float = 0.0,
+):
     """
-    z_{n+1} = z_n^2 + c
-    Returns (n_iter, z_last)
+    Iterate a complex map starting from z0.
+
+    mode:
+        "quadratic"  -> z_{n+1} = z_n^2 + c
+        "exp"        -> z_{n+1} = exp(z_n) + c
+        "controlled" -> polar update with controlled radius + angle
+
+    Controlled radius options:
+        Option A (additive): r_{n+1} = r_n + δ
+        Option B (power):    r_{n+1} = r_n^α
+
+    Controlled angle:
+        θ_{n+1} = θ_n + ω + φ(z_n)
     """
+
+    # Back-compat: if caller provides radial_update/phi explicitly, use them.
+    if phi is None:
+        phi = lambda z: default_phi(z, phase_eps)
+    if radial_update is None:
+        if radial_mode == "additive":
+            radial_update = radial_add(delta)
+        elif radial_mode == "power":
+            radial_update = radial_pow(alpha)
+        else:
+            raise ValueError("radial_mode must be 'additive' or 'power'")
+
     z = z0
-    r2 = escape_radius * escape_radius
-    for n in range(max_iter):
-        # z = z*z + c
-        zr = z.real
-        zi = z.imag
-        # (a+bi)^2 = (a^2 - b^2) + 2ab i
-        zr2 = zr*zr - zi*zi + c.real
-        zi2 = 2.0*zr*zi + c.imag
-        z = complex(zr2, zi2)
-        if (z.real*z.real + z.imag*z.imag) > r2:
-            return n + 1, z
-    return max_iter, z
+    traj = []
 
-@njit(cache=True, fastmath=True)
-def iterate_exponential(z0: complex, c: complex, max_iter: int, escape_radius: float):
-    """
-    z_{n+1} = exp(z_n) + c
-    """
-    z = z0
-    r2 = escape_radius * escape_radius
-    for n in range(max_iter):
-        # exp(a+bi) = exp(a) * (cos b + i sin b)
-        a = z.real
-        b = z.imag
-        ea = np.exp(a)
-        z = complex(ea * np.cos(b) + c.real, ea * np.sin(b) + c.imag)
-        if (z.real*z.real + z.imag*z.imag) > r2:
-            return n + 1, z
-    return max_iter, z
+    for _ in range(max_iter):
+        if mode == "quadratic":
+            z = z * z + c
+        elif mode == "exp":
+            z = np.exp(z) + c
+        elif mode == "controlled":
+            r = np.abs(z)
+            th = np.angle(z)
+            r = radial_update(r)
+            th = th + omega + phi(z)
+            z = r * np.exp(1j * th) + c
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
-def pick_iterator(name: str):
-    name = name.lower()
-    if name in ("quad", "quadratic"):
-        return iterate_quadratic
-    if name in ("exp", "exponential"):
-        return iterate_exponential
-    raise ValueError(f"Unknown map '{name}'. Use 'quadratic' or 'exponential'.")
+        traj.append(z)
+
+        if np.abs(z) > escape_radius or np.isnan(z.real) or np.isinf(z.real):
+            break
+
+    return np.array(traj, dtype=np.complex128)
+
+
+def pick_iterator(map_name: str, controlled_cfg: ControlledConfig | None = None):
+    """
+    Return an iterator function that matches the renderer's expected signature:
+        iterator(z0, c, max_iter, escape_radius) -> (n_iters, last_z)
+
+    controlled_cfg lets the sweep pass parameters into controlled mode.
+    """
+    name = map_name.lower()
+
+    if name == "quadratic":
+        def iterator(z0, c, max_iter, escape_radius):
+            traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="quadratic",
+                              escape_radius=escape_radius)
+            n = len(traj)
+            last = traj[-1] if n > 0 else z0
+            return n, last
+        return iterator
+
+    if name == "exp":
+        def iterator(z0, c, max_iter, escape_radius):
+            traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="exp",
+                              escape_radius=escape_radius)
+            n = len(traj)
+            last = traj[-1] if n > 0 else z0
+            return n, last
+        return iterator
+
+    if name == "controlled":
+        if controlled_cfg is None:
+            controlled_cfg = ControlledConfig()
+
+        def iterator(z0, c, max_iter, escape_radius):
+            traj = iterate_map(
+                z0=z0,
+                c=c,
+                max_iter=max_iter,
+                mode="controlled",
+                radial_mode=controlled_cfg.radial_mode,
+                delta=controlled_cfg.delta,
+                alpha=controlled_cfg.alpha,
+                omega=controlled_cfg.omega,
+                phase_eps=controlled_cfg.phase_eps,
+                escape_radius=escape_radius,
+            )
+            n = len(traj)
+            last = traj[-1] if n > 0 else z0
+            return n, last
+
+        return iterator
+
+    raise ValueError(f"Unknown map name: {map_name}")
