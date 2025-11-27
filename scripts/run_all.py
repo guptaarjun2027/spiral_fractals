@@ -99,6 +99,20 @@ Skip sweep: {args.skip_sweep}
     else:
         print("\n[SKIPPED] Parameter sweep (using existing images)")
 
+    # Step 1.5: Geometry Extraction
+    print(f"\n{'='*60}")
+    print("STEP: Geometry Extraction")
+    print(f"{'='*60}\n")
+    
+    success = run_command(
+        [sys.executable, "-m", "scripts.run_geometry_on_sweeps"],
+        "Geometry Analysis",
+    )
+    
+    if not success:
+        print("\n[WARNING] Geometry analysis failed. Continuing pipeline...")
+
+
     # Step 2: Run analysis notebook programmatically
     # Check if jupyter/nbconvert is available
     try:

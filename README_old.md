@@ -67,6 +67,29 @@ spiral_fractals/
 
 ---
 
+## Geometry Analysis & Stability
+
+New tooling for Week 3 analysis:
+
+### 1. Geometry Quality Analysis
+Run the notebook `notebooks/analysis_geometry.ipynb` to:
+- Load metrics from `results/spiral_metrics.csv`
+- Label spirals as "clean", "borderline", or "messy"
+- Visualize distributions and example grids
+- Save labeled metrics to `results/spiral_metrics_labeled.csv`
+
+### 2. Stability Experiment
+Run the stability experiment script:
+```bash
+python -m scripts.run_stability_experiment
+```
+This will:
+- Pick 3 clean baseline spirals
+- Perturb parameters (delta_r, omega)
+- Generate new images in `figures/stability/`
+- Analyze geometry and save results to `results/stability_metrics.csv`
+- Generate summary plots in `figures/stability/`
+
 ## 🚀 Quick Start: ISEF Reproducibility
 
 ### Prerequisites

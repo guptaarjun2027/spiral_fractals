@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 from skimage import io, filters, morphology, measure, color, util
@@ -97,73 +98,22 @@ def polar_coords_from_center(points: np.ndarray, center: Optional[Tuple[float, f
     return r, theta
 
 
-def trace_arms(skel: np.ndarray, center: Tuple[float, float], min_length: int = 50) -> List[np.ndarray]:
+
+
+
+def estimate_center(mask: np.ndarray) -> Tuple[float, float]:
     """
-    Convert skeleton to graph of connected components ("arms").
-
-    Args:
-        skel: binary skeleton image
-        center: center point for ordering by radius
-        min_length: minimum number of pixels to keep an arm
-
-    Returns:
-        List of arms, where each arm is an Nx2 array of (row, col) coords ordered by increasing radius
+    Estimate the center of the spiral from the binary mask.
+    Uses the centroid of foreground pixels.
     """
-    labeled = measure.label(skel, connectivity=2)
-    arms = []
-
-    for region in measure.regionprops(labeled):
-        if region.area < min_length:
-            continue
-
-        coords = region.coords  # (row, col)
-        # Order by increasing radius from center
-        r, _ = polar_coords_from_center(coords, center)
-        order = np.argsort(r)
-        coords_ordered = coords[order]
-        arms.append(coords_ordered)
-
-    return arms
-
-
-def fit_log_spiral(r: np.ndarray, theta: np.ndarray) -> Tuple[float, float, float, float]:
-    """
-    Fit log spiral: ln(r) = ln(a) + b*theta
-
-    Args:
-        r: radial distances
-        theta: angles
-
-    Returns:
-        (b, a, r2, residual_std)
-    """
-    # clean
-    m = np.isfinite(r) & np.isfinite(theta) & (r > 1e-6)
-    r_clean = r[m]
-    theta_clean = theta[m]
-
-    if len(r_clean) < 10:
-        return (np.nan, np.nan, np.nan, np.nan)
-
-    # unwrap theta to be monotone
-    theta_unwrap = np.unwrap(theta_clean)
-    y = np.log(r_clean)
-    x = theta_unwrap
-
-    slope, intercept, r_value, p_value, stderr = stats.linregress(x, y)
-    b = slope
-    a = float(np.exp(intercept))
-    r2 = r_value**2
-
-    # compute residual std
-    y_pred = slope * x + intercept
-    residuals = y - y_pred
-    residual_std = float(np.std(residuals))
-
-    return (float(b), float(a), float(r2), residual_std)
+    y, x = np.where(mask)
+    if len(y) == 0:
+        return (mask.shape[1] / 2.0, mask.shape[0] / 2.0)
+    return (float(np.mean(x)), float(np.mean(y)))
 
 
 def box_count_fractal_dimension(
+
     boundary: np.ndarray,
     box_sizes: Optional[Sequence[int]] = None,
     n_subsamples: int = 10
@@ -236,105 +186,227 @@ def box_count_fractal_dimension(
     return (float(main_dim), ci_low, ci_high)
 
 
-def compute_arm_spacing(arms: List[np.ndarray], center: Tuple[float, float]) -> Tuple[float, float]:
-    """
-    Compute mean and std of angular spacing between arms.
 
+
+def detect_arms_by_angle(
+    skeleton: np.ndarray,
+    center: Tuple[float, float],
+    r_min_frac: float = 0.2,
+    r_max_frac: float = 0.8,
+    n_theta_bins: int = 72,
+    min_peak_height_frac: float = 0.1,
+) -> List[np.ndarray]:
+    """
+    Detect spiral arms by clustering skeleton pixels based on their angle.
+    
     Strategy:
-    - For each arm, compute median angle
-    - Sort angles and compute angular differences
-    - Return mean and std of differences
-
-    Returns:
-        (arm_spacing_mean, arm_spacing_std)
+    1. Filter pixels to a mid-radius band.
+    2. Compute histogram of angles (theta).
+    3. Smooth histogram to reduce noise/splitting.
+    4. Find peaks with minimum distance constraint.
+    5. Assign pixels to nearest peak.
     """
-    if len(arms) < 2:
-        return (np.nan, np.nan)
+    from scipy.signal import find_peaks, savgol_filter
+    
+    y_idxs, x_idxs = np.where(skeleton)
+    if len(y_idxs) == 0:
+        return []
+        
+    points = np.column_stack((y_idxs, x_idxs))
+    r, theta = polar_coords_from_center(points, center)
+    
+    # Filter by radius
+    r_max = np.max(r) if len(r) > 0 else 1.0
+    mask_r = (r >= r_min_frac * r_max) & (r <= r_max_frac * r_max)
+    
+    if np.sum(mask_r) == 0:
+        return []
+        
+    theta_band = theta[mask_r]
+    # Map theta to [0, 2pi) for histogram
+    theta_band_2pi = np.mod(theta_band, 2 * np.pi)
+    
+    # Histogram
+    hist, bin_edges = np.histogram(theta_band_2pi, bins=n_theta_bins, range=(0, 2 * np.pi))
+    
+    # Smooth histogram (circular convolution would be best, but simple smoothing works for now)
+    # Wrap padding for circular smoothing
+    hist_padded = np.pad(hist, (5, 5), mode='wrap')
+    hist_smooth = np.convolve(hist_padded, np.ones(5)/5, mode='same')[5:-5]
+    
+    # Find peaks
+    # distance=n_theta_bins/8 ensures peaks are at least 45 degrees apart (max 8 arms)
+    height_thresh = min_peak_height_frac * np.max(hist_smooth)
+    peaks, _ = find_peaks(hist_smooth, height=height_thresh, distance=n_theta_bins // 8)
+    
+    if len(peaks) == 0:
+        return []
+        
+    peak_thetas = bin_edges[peaks] + (bin_edges[1] - bin_edges[0]) / 2
+    
+    # Assign all skeleton pixels to nearest peak
+    theta_2pi = np.mod(theta, 2 * np.pi)
+    
+    dists = np.abs(theta_2pi[:, None] - peak_thetas[None, :])
+    dists = np.minimum(dists, 2 * np.pi - dists)
+    
+    labels = np.argmin(dists, axis=1)
+    
+    arms = []
+    for i in range(len(peaks)):
+        arm_mask = labels == i
+        if np.sum(arm_mask) > 20: # Minimum pixels
+            arms.append(points[arm_mask])
+            
+    return arms
 
-    med_angles = []
-    for arm_coords in arms:
-        _, theta = polar_coords_from_center(arm_coords, center)
-        if len(theta) == 0:
-            continue
-        theta_unwrap = np.unwrap(theta)
-        med_angles.append(np.median(theta_unwrap))
 
-    if len(med_angles) < 2:
-        return (np.nan, np.nan)
 
-    med_angles = np.sort(med_angles)
-    diffs = np.diff(med_angles)
-    # include wrap-around
-    wrap_diff = (med_angles[0] + 2*np.pi) - med_angles[-1]
-    diffs = np.append(diffs, wrap_diff)
+def fit_log_spiral_for_arm(
+    arm_pixels: np.ndarray,
+    center: Tuple[float, float],
+    min_delta_theta: float = 0.5,
+    min_points: int = 50,
+) -> Dict[str, float]:
+    """
+    Fit log spiral ln(r) = ln(a) + b*theta to a single arm.
+    """
+    if len(arm_pixels) < min_points:
+        return {"valid": False, "b": np.nan, "r2": np.nan}
+        
+    r, theta = polar_coords_from_center(arm_pixels, center)
+    
+    # Sort by theta to ensure monotonic angle progression
+    # But first we need to handle the wrap-around.
+    # Simple unwrapping works if points are dense.
+    # Let's try sorting by radius first to get a rough order, then unwrap, then sort by theta.
+    
+    # 1. Initial sort by radius (usually monotonic for spirals)
+    idx_r = np.argsort(r)
+    r_sorted = r[idx_r]
+    theta_sorted = theta[idx_r]
+    
+    # 2. Unwrap theta
+    theta_unwrapped = np.unwrap(theta_sorted)
+    
+    # 3. Sort by unwrapped theta to ensure x-axis is monotonic for regression
+    idx_th = np.argsort(theta_unwrapped)
+    x = theta_unwrapped[idx_th]
+    y = np.log(r_sorted[idx_th] + 1e-9)
+    
+    # Check angular extent
+    delta_theta = x.max() - x.min()
+    if delta_theta < min_delta_theta:
+        return {"valid": False, "b": np.nan, "r2": np.nan, "delta_theta": delta_theta}
+    
+    # Robust linear regression (RANSAC-like)
+    # Simple RANSAC implementation using scipy/numpy
+    from skimage.measure import ransac, LineModelND
+    
+    data = np.column_stack((x, y))
+    
+    try:
+        model, inliers = ransac(data, LineModelND, min_samples=min_points//2, residual_threshold=0.1, max_trials=100)
+        
+        # Re-fit on inliers using standard linear regression for R2
+        x_in = x[inliers]
+        y_in = y[inliers]
+        
+        if len(x_in) < min_points // 2:
+             raise ValueError("Too few inliers")
+             
+        slope, intercept, r_value, p_value, stderr = stats.linregress(x_in, y_in)
+        
+        return {
+            "valid": True,
+            "b": float(slope),
+            "r2": float(r_value**2),
+            "n_points": len(x_in),
+            "delta_theta": float(delta_theta),
+            "intercept": float(intercept)
+        }
+        
+    except Exception:
+        # Fallback to standard regression if RANSAC fails
+        slope, intercept, r_value, p_value, stderr = stats.linregress(x, y)
+        return {
+            "valid": True,
+            "b": float(slope),
+            "r2": float(r_value**2),
+            "n_points": len(x),
+            "delta_theta": float(delta_theta),
+            "intercept": float(intercept)
+        }
 
-    return (float(np.mean(diffs)), float(np.std(diffs)))
 
 
 def analyze_spiral_image(
-    image_path: str | Path,
+    image_path: str | Path | np.ndarray,
     cfg: Optional[GeometryConfig] = None
 ) -> Dict[str, float]:
     """
     High-level API to analyze a spiral fractal image.
-
-    Args:
-        image_path: path to spiral image
-        cfg: GeometryConfig with analysis parameters
-
-    Returns:
-        dict with keys:
-            - arm_count
-            - b_mean, b_std
-            - r2_mean
-            - arm_spacing_mean, arm_spacing_std
-            - fractal_dimension, fractal_dimension_ci_low, fractal_dimension_ci_high
+    
+    Pipeline:
+    1. Load & Threshold -> Mask
+    2. Skeletonize
+    3. Estimate Center
+    4. Detect Arms (Angle Clustering)
+    5. Fit Log-Spiral to each arm
+    6. Compute Fractal Dimension
+    7. Aggregate Metrics
     """
     if cfg is None:
         cfg = GeometryConfig()
 
-    # Load and preprocess
-    img = load_image_gray(image_path)
+    # Load
+    if isinstance(image_path, (str, Path)):
+        img = load_image_gray(image_path)
+    else:
+        img = image_path
+        
+    # Mask & Skeleton
     mask = binary_mask(img, cfg.threshold)
     boundary = extract_boundary(mask)
     skel = skeletonize_boundary(boundary)
-
-    # Determine center
-    h, w = img.shape
+    
+    # Center
     if cfg.center is None:
-        center = (w / 2.0, h / 2.0)
+        center = estimate_center(mask)
     else:
         center = cfg.center
-
-    # Trace arms
-    arms = trace_arms(skel, center, min_length=cfg.min_arm_length)
-
-    if len(arms) == 0:
-        # No arms found - return NaNs
-        return {
-            "arm_count": 0.0,
-            "b_mean": np.nan,
-            "b_std": np.nan,
-            "r2_mean": np.nan,
-            "arm_spacing_mean": np.nan,
-            "arm_spacing_std": np.nan,
-            "fractal_dimension": np.nan,
-            "fractal_dimension_ci_low": np.nan,
-            "fractal_dimension_ci_high": np.nan,
-        }
-
-    # Fit log spiral to each arm
+        
+    # Detect Arms
+    arms = detect_arms_by_angle(skel, center)
+    
+    # Fit Arms
+    valid_arms = 0
     b_vals = []
     r2_vals = []
-    for arm_coords in arms:
-        r, theta = polar_coords_from_center(arm_coords, center)
-        b, a, r2, residual_std = fit_log_spiral(r, theta)
-        if np.isfinite(b) and np.isfinite(r2):
-            b_vals.append(b)
-            r2_vals.append(r2)
+    
+    for arm_pixels in arms:
+        res = fit_log_spiral_for_arm(arm_pixels, center)
+        if res["valid"] and res["r2"] > 0.5: # Quality filter
+            valid_arms += 1
+            b_vals.append(abs(res["b"])) # Magnitude of slope
+            r2_vals.append(res["r2"])
+            
+    # Fallback logic for arm count
+    # If no arms pass the R² filter but there are many skeleton pixels, fall back to:
+    # either the raw number of angle peaks, or a default of 2 arms.
+    final_arm_count = float(valid_arms)
+    if valid_arms == 0:
+        # Check if we have enough skeleton pixels to justify a fallback
+        if np.sum(skel) > 100:
+            # Fallback to raw number of arms detected (peaks) or default 2
+            # detect_arms_by_angle returns clusters based on peaks
+            if len(arms) > 0:
+                final_arm_count = float(len(arms))
+            else:
+                final_arm_count = 2.0
 
-    # Aggregate statistics
-    if len(b_vals) > 0:
+    # Aggregate
+    if valid_arms > 0:
         b_mean = float(np.mean(b_vals))
         b_std = float(np.std(b_vals))
         r2_mean = float(np.mean(r2_vals))
@@ -342,23 +414,52 @@ def analyze_spiral_image(
         b_mean = np.nan
         b_std = np.nan
         r2_mean = np.nan
-
-    # Arm spacing
-    arm_spacing_mean, arm_spacing_std = compute_arm_spacing(arms, center)
-
-    # Fractal dimension
+        
+    # Fractal Dimension
     fd, fd_ci_low, fd_ci_high = box_count_fractal_dimension(
         boundary, cfg.box_sizes, cfg.n_subsamples
     )
+    
+    image_name = Path(image_path).name if isinstance(image_path, (str, Path)) else "numpy_array"
 
     return {
-        "arm_count": float(len(arms)),
+        "image": image_name,
+        "arm_count": final_arm_count,
         "b_mean": b_mean,
         "b_std": b_std,
         "r2_mean": r2_mean,
-        "arm_spacing_mean": arm_spacing_mean,
-        "arm_spacing_std": arm_spacing_std,
         "fractal_dimension": fd,
         "fractal_dimension_ci_low": fd_ci_low,
         "fractal_dimension_ci_high": fd_ci_high,
     }
+
+
+def analyze_image_batch(
+    paths: List[Path],
+    cfg: Optional[GeometryConfig] = None,
+) -> pd.DataFrame:
+    """
+    Run analyze_spiral_image on a list of paths and return a DataFrame
+    with one row per image.
+    """
+    results = []
+    for path in paths:
+        try:
+            res = analyze_spiral_image(path, cfg)
+            results.append(res)
+        except Exception as e:
+            print(f"Error analyzing {path}: {e}")
+            # Add a row with error or NaNs? For now just skip or add partial
+            results.append({
+                "image": path.name,
+                "arm_count": np.nan,
+                "b_mean": np.nan,
+                "b_std": np.nan,
+                "r2_mean": np.nan,
+                "fractal_dimension": np.nan,
+                "fractal_dimension_ci_low": np.nan,
+                "fractal_dimension_ci_high": np.nan,
+            })
+            
+    return pd.DataFrame(results)
+
