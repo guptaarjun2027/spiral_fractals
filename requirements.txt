@@ -28,3 +28,6 @@ nbformat>=5.1.0
 
 # Optional: faster numerical computation
 numba>=0.53.0
+
+# Configuration
+PyYAML>=6.0

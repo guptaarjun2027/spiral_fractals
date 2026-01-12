@@ -1,0 +1,35 @@
+n_steps: 2000
+mode: "theorem_map"
+escape_radius: 1000.0
+
+sampling:
+  r_min: 1.0
+  r_max: 50.0
+  num_points: 200
+
+wedge_scan:
+  phi_min: -3.14159
+  phi_max: 3.14159
+  num_phi: 100
+  r_scan_min: 5.0
+  r_scan_max: 100.0
+  num_r_scan: 20
+  tau: 0.9
+
+fit:
+  r_fit_min: 5.0
+  r_fit_max: 800.0
+  tail_fraction: 0.4
+  bootstrap_B: 100
+
+params:
+  - theta: 0.5
+    lam: 1.0+0j
+    eps: 0.001+0j
+    crash_radius: 1e-6
+    wedge_eta: 0.3
+  - theta: 1.57
+    lam: 0.5+0j
+    eps: 0.0001+0j
+    crash_radius: 1e-6
+    wedge_eta: 0.3

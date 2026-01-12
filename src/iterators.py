@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
 
@@ -41,6 +42,10 @@ def iterate_map(
     delta: float = 0.01,
     alpha: float = 1.05,
     phase_eps: float = 0.0,
+    theta: float = 0.0,
+    lam: complex = 1.0 + 0j,
+    eps: complex = 0.0 + 0j,
+    crash_radius: float = 1e-6,
 ):
     """
     Iterate a complex map starting from z0.
@@ -49,6 +54,7 @@ def iterate_map(
         "quadratic"  -> z_{n+1} = z_n^2 + c
         "exp"        -> z_{n+1} = exp(z_n) + c
         "controlled" -> polar update with controlled radius + angle
+        "theorem_map" -> z_{n+1} = e^{i\theta} z + \lambda z^2 + \varepsilon z^{-2}
 
     Controlled radius options:
         Option A (additive): r_{n+1} = r_n + δ
@@ -67,7 +73,7 @@ def iterate_map(
         elif radial_mode == "power":
             radial_update = radial_pow(alpha)
         else:
-            raise ValueError("radial_mode must be 'additive' or 'power'")
+            radial_update = radial_add(delta) # Default fallback if not controlled mode
 
     z = z0
     traj = []
@@ -83,6 +89,16 @@ def iterate_map(
             r = radial_update(r)
             th = th + omega + phi(z)
             z = r * np.exp(1j * th) + c
+        elif mode == "theorem_map":
+            if np.abs(z) < crash_radius:
+                # Crash: stop orbit
+                break
+            # Avoid division by zero naturally handled by check above
+            # z_next = e^{i*theta} * z + lam * z^2 + eps * z^{-2}
+            term1 = np.exp(1j * theta) * z
+            term2 = lam * (z * z)
+            term3 = eps * (1.0 / (z * z))
+            z = term1 + term2 + term3
         else:
             raise ValueError(f"Unknown mode: {mode}")
 

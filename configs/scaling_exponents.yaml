@@ -1,0 +1,26 @@
+n_steps: 2000
+mode: "theorem_map"
+escape_radius: 1000.0
+
+radii:
+  r_min: 2.0
+  r_max: 50.0
+  num_r: 10
+
+num_angles: 100
+
+fit_window:
+  r_lo: 2.0
+  r_hi: 40.0
+
+bootstrap_B: 100
+
+params:
+  - theta: 0.5
+    lam: 1.0+0j
+    eps: 0.001+0j
+    crash_radius: 1e-6
+  - theta: 1.0
+    lam: 0.8+0j
+    eps: 0.0+0j
+    crash_radius: 1e-6
