@@ -1,0 +1,4 @@
+tier,grid_n,max_iters,escape_radius,param_id,theta,lam,eps,wedge_found,wedge_tau,wedge_eta,wedge_valid_fraction,kappa_hat,kappa_ci_low,kappa_ci_high,n_orbits_total,n_orbits_valid,scaling_found,beta_hat,beta_ci_low,beta_ci_high,n_valid_points,fail_reason
+LOW,128,800,100.0,theorem_map_known_spiral,0.5,(1+0j),(0.001+0j),1,0.9,0.3,0.4,-0.008507245263089297,-0.19377161569535814,0.12475792491817768,128,128,False,,,,0,beta_scaling_regime_not_detected
+MED,256,1600,150.0,theorem_map_known_spiral,0.5,(1+0j),(0.001+0j),1,0.9,0.3,0.4,0.1210005571992171,0.017919919155653344,0.21577623635142604,256,256,False,,,,0,beta_scaling_regime_not_detected
+HIGH,512,2400,200.0,theorem_map_known_spiral,0.5,(1+0j),(0.001+0j),1,0.9,0.3,0.4,0.03932613710079916,-0.048332315066095234,0.11421590873687318,512,512,False,,,,0,beta_scaling_regime_not_detected
