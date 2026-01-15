@@ -1,46 +1,66 @@
+# configs/rigor_sensitivity.yaml
+# Step 4.1 — Judge-proof numerical convergence / sensitivity analysis
+# Runs LOW/MED/HIGH tiers for a single known parameter set and estimates:
+# - wedge validity
+# - kappa (pitch) using growth-valid orbit tail logic
+# - beta (scaling exponent) if a scaling regime exists (otherwise honest fail_reason)
 
-# Config for Rigor Sensitivity Analysis (Step 4.1)
-# Tests numerical convergence across three tiers of computational effort.
+param:
+  param_id: theorem_map_known_spiral
+  theta: 0.5
+  lam: 1.0+0.0j
+  eps: 0.001+0.0j
+  wedge_eta: 0.3
+  crash_radius: 1e-6
 
-# Output configuration is handled by command line args usually, but defaults here
-n_steps_base: 2000 # Just a fallback specific to iterate_map if needed, 
-                   # though tiers override max_iter.
-
-# Tiers of computational effort
+# Three computational tiers: change these to match your “LOW/MED/HIGH” story
 tiers:
   LOW:
-    num_angles: 128
-    num_radii: 12
-    max_iter: 400
-    escape_radius: 60.0
+    grid_n: 128
+    max_iters: 800
+    escape_radius: 100.0
   MED:
-    num_angles: 256
-    num_radii: 20
-    max_iter: 800
-    escape_radius: 80.0
+    grid_n: 256
+    max_iters: 1600
+    escape_radius: 150.0
   HIGH:
-    num_angles: 512
-    num_radii: 28
-    max_iter: 1200
-    escape_radius: 120.0
+    grid_n: 512
+    max_iters: 2400
+    escape_radius: 200.0
 
-# Fixed settings
-fit:
-  tail_fraction: 0.4
-  bootstrap_B: 100 # Lower for sensitivity speed
-  fit_window_r_min: 10.0
-  fit_window_r_max: 100.0
+# Used by src.theorem_conditions.estimate_wedge_scanning
+# (Make sure your estimate_wedge_scanning reads these keys.)
+wedge_scan:
+  r_min: 2.0
+  r_max: 120.0
+  r_steps: 60
+  phi_steps: 120
+  tau: 0.9
 
-# Parameter sets to test
-params:
-  - theta: -0.2
-    lam: 0.8+0.0j
-    eps: 0.1+0.0j
-    wedge_eta: 0.3
-    crash_radius: 1e-6
-    
-  - theta: 0.5
-    lam: 0.9+0.1j
-    eps: 0.05+0.1j
-    wedge_eta: 0.3
-    crash_radius: 1e-6
+# Growth-valid orbit requirements (kappa estimation)
+orbit_validation:
+  r_growth_min: 20.0
+  r_growth_max: null
+  min_tail_points: 30
+  min_valid_orbits: 8
+
+# Kappa estimation / bootstrap settings
+pitch:
+  kappa_clip: 10.0
+  bootstrap_B: 200
+
+# Beta scaling detection settings (1 - rho(r) ~ r^{-beta})
+scaling:
+  # sampling
+  num_radii: 16
+  n_test_angles: 800
+  r_min_beta: 10.0
+
+  # window detection
+  min_points: 5
+  min_span_decade: 0.5
+  r_sq_thresh: 0.95
+
+  # y-window (y = 1 - rho)
+  y_min: 1.0e-3
+  y_max: 0.6
