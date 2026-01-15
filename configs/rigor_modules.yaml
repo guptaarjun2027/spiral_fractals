@@ -1,0 +1,78 @@
+# Rigor Modules Configuration (Step 4)
+# Judge-proof numerical convergence and phase diagram experiments
+
+# Known-good theorem_map parameter (from theorem_check.yaml param 0)
+param:
+  param_id: "theorem_map_known_spiral"
+  theta: 0.5
+  lam: 1.0+0.0j
+  eps: 0.001+0.0j  
+  wedge_eta: 0.3
+  crash_radius: 1.0e-6
+
+# Computational tiers for convergence testing 
+tiers:
+  LOW:
+    grid_n: 128
+    max_iters: 800
+    escape_radius: 100.0
+  MED:
+    grid_n: 256
+    max_iters: 1600
+    escape_radius: 150.0
+  HIGH:
+    grid_n: 512
+    max_iters: 2400
+    escape_radius: 200.0
+
+# Growth-valid orbit settings (judge-proof contract)
+orbit_validation:
+  r_growth_min: 15.0      # Orbit must reach this radius (lowered from 20.0)
+  r_growth_max: null      # null = no upper limit for tail window
+  min_tail_points: 10     # Minimum points in radial tail window (lowered from 30)
+  min_valid_orbits: 3     # Minimum successful orbits for tier to pass (lowered from 8)
+
+# Kappa (pitch) estimation
+pitch:
+  tail_fraction: 0.4      # Ignored when using radial window
+  bootstrap_B: 200
+  kappa_clip: 10.0        # Reject |kappa| > this value
+
+# Beta (scaling exponent) detection
+scaling:
+  min_points: 5
+  min_span_decade: 0.5
+  r_sq_thresh: 0.95
+  n_test_angles: 800        # Number of angles to test per radius (was hardcoded 50)
+  num_radii: 16             # Number of radii to sample (was hardcoded 12)
+  r_min_beta: 10.0          # Minimum radius for beta estimation
+  y_min: 1.0e-3             # Minimum y = 1-rho for valid scaling regime (was 1e-4)
+  y_max: 0.6                # Maximum y = 1-rho for valid scaling regime (was 0.3)
+
+# Wedge scanning (existing logic)
+wedge_scan:
+  r_scan_min: 5.0
+  r_scan_max: 100.0
+  num_r_scan: 20
+  phi_min: -3.14159
+  phi_max: 3.14159
+  num_phi: 100
+  tau: 0.9
+
+# Phase diagram sweep
+phase_sweep:
+  eps_min: 0.0
+  eps_max: 2.0
+  eps_steps: 20
+  lam_min: 0.01
+  lam_max: 2.0
+  lam_steps: 20
+  
+phase_check:
+  num_test_orbits: 30
+  max_iter_phase: 1000
+  escape_radius_phase: 120.0
+  
+# Theory boundary overlay
+theory_boundary:
+  R0: 5.0  # Conservative R0 for sufficient condition: lam >= 4/R + 4*eps/R^4
