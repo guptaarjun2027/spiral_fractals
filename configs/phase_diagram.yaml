@@ -1,0 +1,35 @@
+# Config for Phase Diagram (Step 4.2)
+# Sweeps lam/eps space to classify regions as "spiral/unbounded" and compare with theory.
+
+# Sweep settings
+theta: 0.1
+wedge_eta: 0.3
+crash_radius: 1e-6
+escape_radius: 100.0
+max_iter: 1000
+
+sweep:
+  lam:
+    min: 0.01
+    max: 2.0
+    steps: 20
+    scale: 'linear' # or log
+  eps:
+    min: 0.0
+    max: 2.0
+    steps: 20
+    scale: 'linear'
+
+# Simulation check
+check:
+  num_angles: 50
+  num_points_check: 20 # points to check for pitch estimation
+  # We do a lightweight check: just verify if we find a wedge and if orbits escape with consistent pitch.
+  min_escape_fraction: 0.1
+  tail_fraction: 0.4
+  fit_r_min: 10.0
+  fit_r_max: 100.0
+
+# Theory overlay
+theory:
+  conservative_R0: 5.0 # R0 for sufficiency condition

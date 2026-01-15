@@ -1,0 +1,46 @@
+
+# Config for Rigor Sensitivity Analysis (Step 4.1)
+# Tests numerical convergence across three tiers of computational effort.
+
+# Output configuration is handled by command line args usually, but defaults here
+n_steps_base: 2000 # Just a fallback specific to iterate_map if needed, 
+                   # though tiers override max_iter.
+
+# Tiers of computational effort
+tiers:
+  LOW:
+    num_angles: 128
+    num_radii: 12
+    max_iter: 400
+    escape_radius: 60.0
+  MED:
+    num_angles: 256
+    num_radii: 20
+    max_iter: 800
+    escape_radius: 80.0
+  HIGH:
+    num_angles: 512
+    num_radii: 28
+    max_iter: 1200
+    escape_radius: 120.0
+
+# Fixed settings
+fit:
+  tail_fraction: 0.4
+  bootstrap_B: 100 # Lower for sensitivity speed
+  fit_window_r_min: 10.0
+  fit_window_r_max: 100.0
+
+# Parameter sets to test
+params:
+  - theta: -0.2
+    lam: 0.8+0.0j
+    eps: 0.1+0.0j
+    wedge_eta: 0.3
+    crash_radius: 1e-6
+    
+  - theta: 0.5
+    lam: 0.9+0.1j
+    eps: 0.05+0.1j
+    wedge_eta: 0.3
+    crash_radius: 1e-6
