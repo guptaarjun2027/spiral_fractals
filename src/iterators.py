@@ -37,11 +37,14 @@ def iterate_map(
     omega: float = 0.2,
     phi=None,
     escape_radius: float = 1e6,
-    # ---- NEW controlled spiral args (all optional) ----
+    stop_on_escape: bool = True,  # NEW: if False, keep iterating even after crossing escape_radius
+    stop_radius: float = None,  # NEW: alternative stop condition - stop when |z| > stop_radius
+    # ---- controlled spiral args (all optional) ----
     radial_mode: str = "additive",
     delta: float = 0.01,
     alpha: float = 1.05,
     phase_eps: float = 0.0,
+    # ---- theorem map args ----
     theta: float = 0.0,
     lam: complex = 1.0 + 0j,
     eps: complex = 0.0 + 0j,
@@ -51,10 +54,10 @@ def iterate_map(
     Iterate a complex map starting from z0.
 
     mode:
-        "quadratic"  -> z_{n+1} = z_n^2 + c
-        "exp"        -> z_{n+1} = exp(z_n) + c
-        "controlled" -> polar update with controlled radius + angle
-        "theorem_map" -> z_{n+1} = e^{i\theta} z + \lambda z^2 + \varepsilon z^{-2}
+        "quadratic"   -> z_{n+1} = z_n^2 + c
+        "exp"         -> z_{n+1} = exp(z_n) + c
+        "controlled"  -> polar update with controlled radius + angle
+        "theorem_map" -> z_{n+1} = e^{iθ} z + λ z^2 + ε z^{-2}
 
     Controlled radius options:
         Option A (additive): r_{n+1} = r_n + δ
@@ -62,6 +65,10 @@ def iterate_map(
 
     Controlled angle:
         θ_{n+1} = θ_n + ω + φ(z_n)
+
+    escape behavior:
+        - if stop_on_escape=True: stop when |z| > escape_radius (classic escape-time)
+        - if stop_on_escape=False: continue iterating (useful for asymptotic tail fitting)
     """
 
     # Back-compat: if caller provides radial_update/phi explicitly, use them.
@@ -73,7 +80,7 @@ def iterate_map(
         elif radial_mode == "power":
             radial_update = radial_pow(alpha)
         else:
-            radial_update = radial_add(delta) # Default fallback if not controlled mode
+            radial_update = radial_add(delta)  # safe fallback
 
     z = z0
     traj = []
@@ -81,30 +88,46 @@ def iterate_map(
     for _ in range(max_iter):
         if mode == "quadratic":
             z = z * z + c
+
         elif mode == "exp":
             z = np.exp(z) + c
+
         elif mode == "controlled":
             r = np.abs(z)
             th = np.angle(z)
             r = radial_update(r)
             th = th + omega + phi(z)
             z = r * np.exp(1j * th) + c
+
         elif mode == "theorem_map":
+            # Crash: stop orbit if we enter the singular region
             if np.abs(z) < crash_radius:
-                # Crash: stop orbit
                 break
-            # Avoid division by zero naturally handled by check above
-            # z_next = e^{i*theta} * z + lam * z^2 + eps * z^{-2}
+
+            # z_next = e^{iθ} z + λ z^2 + ε z^{-2}
             term1 = np.exp(1j * theta) * z
             term2 = lam * (z * z)
-            term3 = eps * (1.0 / (z * z))
+            term3 = eps * (1.0 / (z * z))  # z^{-2}
             z = term1 + term2 + term3
+
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
         traj.append(z)
 
-        if np.abs(z) > escape_radius or np.isnan(z.real) or np.isinf(z.real):
+        # Numerical safety stop
+        if (
+            np.isnan(z.real) or np.isnan(z.imag) or
+            np.isinf(z.real) or np.isinf(z.imag)
+        ):
+            break
+
+        # Escape stop (optional)
+        if stop_on_escape and (np.abs(z) > escape_radius):
+            break
+
+        # Stop radius check (hard stop regardless of stop_on_escape)
+        if stop_radius is not None and (np.abs(z) > stop_radius):
             break
 
     return np.array(traj, dtype=np.complex128)
@@ -122,7 +145,7 @@ def pick_iterator(map_name: str, controlled_cfg: ControlledConfig | None = None)
     if name == "quadratic":
         def iterator(z0, c, max_iter, escape_radius):
             traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="quadratic",
-                              escape_radius=escape_radius)
+                              escape_radius=escape_radius, stop_on_escape=True)
             n = len(traj)
             last = traj[-1] if n > 0 else z0
             return n, last
@@ -131,7 +154,7 @@ def pick_iterator(map_name: str, controlled_cfg: ControlledConfig | None = None)
     if name == "exp":
         def iterator(z0, c, max_iter, escape_radius):
             traj = iterate_map(z0=z0, c=c, max_iter=max_iter, mode="exp",
-                              escape_radius=escape_radius)
+                              escape_radius=escape_radius, stop_on_escape=True)
             n = len(traj)
             last = traj[-1] if n > 0 else z0
             return n, last
@@ -153,6 +176,7 @@ def pick_iterator(map_name: str, controlled_cfg: ControlledConfig | None = None)
                 omega=controlled_cfg.omega,
                 phase_eps=controlled_cfg.phase_eps,
                 escape_radius=escape_radius,
+                stop_on_escape=True,
             )
             n = len(traj)
             last = traj[-1] if n > 0 else z0

@@ -1,35 +1,87 @@
-n_steps: 2000
-mode: "theorem_map"
-escape_radius: 1000.0
+# configs/theorem_check.yaml
+# Experiment 3.1: Theorem Check (per-orbit)
+# Purpose:
+# - Find the "good-angle wedge" using Option (2) + dominance
+# - Seed ONLY inside that wedge
+# - Simulate theorem_map long enough to get a real tail
+# - Fit per orbit: phi = kappa * log(r) + b
+# - Check: R^2 >= R2_min and kappa_pred inside CI
+
+n_steps: 2500
+
+# Escape threshold (classification):
+# Orbit is considered "escaped" if it ever crosses this radius.
+escape_radius: 1.0e3
+
+# Stop radius (data collection):
+# We keep iterating until we hit this, so we have enough tail points to fit a line.
+# Must be much larger than escape_radius, but not so large that we blow past it in one step.
+# With r → r² growth, we need stop_radius ~ escape_radius² to get ~1 extra doubling
+stop_radius: 1.0e4
 
 sampling:
-  r_min: 1.0
-  r_max: 50.0
-  num_points: 200
+  # Seed radii (log-uniform sample between these)
+  # Start small so we get many iterations before hitting stop_radius
+  r_min: 2.0
+  r_max: 10.0
 
-wedge_scan:
-  phi_min: -3.14159
-  phi_max: 3.14159
-  num_phi: 100
-  r_scan_min: 5.0
-  r_scan_max: 100.0
-  num_r_scan: 20
-  tau: 0.9
+  # Number of seeds per parameter set
+  num_points: 80
+
+  # Shrink wedge edges a bit for safety (in units of phi grid steps)
+  wedge_margin_steps: 6
 
 fit:
-  r_fit_min: 5.0
-  r_fit_max: 800.0
-  tail_fraction: 0.4
-  bootstrap_B: 100
+  # Only use points with r in [r_fit_min, r_fit_max] for tail fitting
+  # r_fit_max should be <= stop_radius
+  # With r → r² growth, use a very wide window to capture all escaping points
+  r_fit_min: 2.0
+  r_fit_max: 1.0e4
+
+  # Fit only the last fraction of points (by log(r) order)
+  tail_fraction: 0.40
+
+  # PASS requires R^2 above this
+  R2_min: 0.99
+
+wedge_scan:
+  # Radius window used to FIND wedge (not the seed window)
+  r_scan_min: 10.0
+  r_scan_max: 200.0
+  num_r_scan: 25
+
+  # Angle scan grid
+  phi_min: -3.141592653589793
+  phi_max: 3.141592653589793
+  num_phi: 400
+
+  # Wedge definition: for a phi to be in wedge,
+  # Option (2) condition must hold for >= tau fraction of radii in the scan
+  tau: 0.90
+
+  # Option (2) alpha parameter in:
+  # |F| >= |λ| r^2 - r + alpha
+  alpha: 2.0
 
 params:
-  - theta: 0.5
-    lam: 1.0+0j
-    eps: 0.001+0j
-    crash_radius: 1e-6
-    wedge_eta: 0.3
-  - theta: 1.57
-    lam: 0.5+0j
-    eps: 0.0001+0j
-    crash_radius: 1e-6
-    wedge_eta: 0.3
+  # --- Real lambda (baseline) ---
+  - theta: 0.7
+    lam: "1+0j"
+    eps: "0.2+0j"
+    crash_radius: 1.0e-6
+
+  - theta: 1.2
+    lam: "1+0j"
+    eps: "0.2+0j"
+    crash_radius: 1.0e-6
+
+  # --- Complex lambda (rotation + growth) ---
+  - theta: 0.7
+    lam: "0.7+0.5j"
+    eps: "0.2+0j"
+    crash_radius: 1.0e-6
+
+  - theta: 0.7
+    lam: "1.2-0.4j"
+    eps: "0.2+0j"
+    crash_radius: 1.0e-6

@@ -1,9 +1,27 @@
 """
-Experiment: Theorem Check (Step 3.1) - Updated for Theorem Map (Option A)
+Experiment: Theorem Check (Step 3.1) - UPDATED (per-orbit theorem-check, tail-safe)
 
-Validates the spiral structure of escaping orbits and checks consistency with predicted kappa.
-Uses F(z) = e^{i\theta}z + \lambda z^2 + \varepsilon z^{-2}.
-Includes honest wedge scanning and asymptotic tail fitting.
+Key change:
+- We separate "escape threshold" from "stop radius".
+
+escape_radius = threshold at which we declare the orbit escaped (e.g. 1e3)
+stop_radius   = much larger radius used ONLY to stop iteration so we collect a long tail
+               (e.g. 1e12). This prevents "num_orbits_fit=0" due to too-short orbits.
+
+This version:
+1) Finds wedge using Option (2) + dominance.
+2) Seeds inside wedge.
+3) Iterates theorem map until stop_radius (or crash/nan/inf).
+4) Declares escaped if orbit ever crosses escape_radius.
+5) Fits each orbit tail: phi = kappa log r + b.
+6) Theorem PASS per orbit: R^2 >= R2_min AND k_pred in CI.
+
+Outputs:
+- summary CSV per parameter set
+- per-orbit CSV per parameter set
+- wedge_map image
+- per-orbit phi vs log r plots (a few)
+- kappa_pred vs kappa_hat agreement plot
 """
 
 import argparse
@@ -14,312 +32,483 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy import stats
 
-from src.iterators import iterate_map, ControlledConfig
-from src.theorem_conditions import lemma_holds, estimate_wedge_scanning
+from src.iterators import iterate_map
+
+
+# ----------------------------
+# Core map + theorem utilities
+# ----------------------------
+
+def F_map(z: complex, theta: float, lam: complex, eps: complex) -> complex:
+    return np.exp(1j * theta) * z + lam * (z ** 2) + eps * (z ** -2)
+
+
+def dominance_holds(r: float, lam: complex, eps: complex) -> bool:
+    """
+    Large-radius dominance:
+       |λ| r^2 >= 4 r + 4 |ε| r^{-2}
+    """
+    if r <= 0:
+        return False
+    norm_lam = abs(lam)
+    if norm_lam == 0:
+        return False
+    lhs = norm_lam * (r ** 2)
+    rhs = 4.0 * r + 4.0 * abs(eps) * (r ** -2)
+    return lhs >= rhs
+
+
+def option2_threshold(r: float, lam: complex, alpha: float) -> float:
+    """
+    Option (2):
+        |F| >= |λ| r^2 - r + α
+    """
+    return abs(lam) * (r ** 2) - r + alpha
+
+
+def option2_condition_holds(r: float, phi: float, theta: float, lam: complex, eps: complex, alpha: float) -> bool:
+    """
+    "Good angle" test for wedge scanning:
+    - dominance holds at r
+    - |F(re^{iφ})| >= |λ| r^2 - r + α
+    """
+    if not dominance_holds(r, lam, eps):
+        return False
+    z = r * np.exp(1j * phi)
+    val = abs(F_map(z, theta, lam, eps))
+    return val >= option2_threshold(r, lam, alpha)
+
+
+def estimate_wedge_option2(theta: float, lam: complex, eps: complex, alpha: float, scan_cfg: dict):
+    """
+    Scan (r, phi) grid and find a contiguous wedge of phi values
+    such that Option (2) condition holds for >= tau fraction of radii.
+
+    Returns:
+      wedge_found (0/1), phi_lo, phi_hi, wedge_width,
+      valid_fraction_global, r_grid, phi_grid, valid_mask
+    """
+    r_min = float(scan_cfg.get('r_scan_min', 10.0))
+    r_max = float(scan_cfg.get('r_scan_max', 200.0))
+    num_r = int(scan_cfg.get('num_r_scan', 25))
+
+    phi_min = float(scan_cfg.get('phi_min', -np.pi))
+    phi_max = float(scan_cfg.get('phi_max', np.pi))
+    num_phi = int(scan_cfg.get('num_phi', 400))
+
+    tau = float(scan_cfg.get('tau', 0.9))
+
+    rs = np.logspace(np.log10(r_min), np.log10(r_max), num_r)
+    phis = np.linspace(phi_min, phi_max, num_phi)
+
+    # meshgrid with shapes (num_phi, num_r)
+    r_grid, phi_grid = np.meshgrid(rs, phis)
+    valid_mask = np.zeros_like(r_grid, dtype=bool)
+
+    for i in range(r_grid.shape[0]):
+        for j in range(r_grid.shape[1]):
+            valid_mask[i, j] = option2_condition_holds(
+                r=float(r_grid[i, j]),
+                phi=float(phi_grid[i, j]),
+                theta=theta,
+                lam=lam,
+                eps=eps,
+                alpha=alpha
+            )
+
+    valid_rate_per_phi = np.mean(valid_mask, axis=1)  # fraction over r, for each phi
+    valid_per_phi = valid_rate_per_phi >= tau
+
+    if not np.any(valid_per_phi):
+        wedge_found = 0
+        phi_lo, phi_hi, wedge_width = np.nan, np.nan, 0.0
+    else:
+        wedge_found = 1
+        indices = np.where(valid_per_phi)[0]
+        diffs = np.diff(indices)
+        splits = np.where(diffs > 1)[0]
+
+        if len(splits) == 0:
+            phi_lo, phi_hi = phis[indices[0]], phis[indices[-1]]
+        else:
+            # pick largest contiguous block
+            blocks = []
+            start = 0
+            for s in splits:
+                blocks.append((indices[s] - indices[start], indices[start], indices[s]))
+                start = s + 1
+            blocks.append((indices[-1] - indices[start], indices[start], indices[-1]))
+            best = max(blocks, key=lambda x: x[0])
+            phi_lo, phi_hi = phis[best[1]], phis[best[2]]
+
+        wedge_width = float(phi_hi - phi_lo)
+
+    valid_fraction_global = float(np.sum(valid_mask) / valid_mask.size)
+    return wedge_found, phi_lo, phi_hi, wedge_width, valid_fraction_global, r_grid, phi_grid, valid_mask
+
+
+def kappa_pred(phi0: float, r0: float, lam: complex) -> float:
+    """
+    Orbit-dependent predicted spiral pitch from asymptotic doubling:
+        κ_pred ≈ (φ0 + arg λ) / (log r0 + log |λ|)
+    """
+    denom = (np.log(r0) + np.log(abs(lam)))
+    if denom == 0:
+        return np.nan
+    return (phi0 + np.angle(lam)) / denom
+
+
+def fit_orbit_tail(logr: np.ndarray, phi: np.ndarray, tail_fraction: float):
+    """
+    Fit φ = κ log r + b on the last tail_fraction of points.
+    Returns dict with k_hat, intercept, R2, CI, n_tail.
+    """
+    n = len(logr)
+    if n < 3:
+        return None
+
+    start = int((1.0 - tail_fraction) * n)
+    x = logr[start:]
+    y = phi[start:]
+
+    # Need at least 3 points for linear regression with confidence intervals
+    if len(x) < 3:
+        # Fall back to using all points if tail is too short
+        x = logr
+        y = phi
+
+    if len(x) < 3:
+        return None
+
+    slope, intercept, r_val, p_val, std_err = stats.linregress(x, y)
+    R2 = r_val ** 2
+
+    df = len(x) - 2
+    tcrit = stats.t.ppf(0.975, df) if df > 0 else 1.96
+    ci_low = slope - tcrit * std_err
+    ci_high = slope + tcrit * std_err
+
+    return {
+        "k_hat": float(slope),
+        "intercept": float(intercept),
+        "R2": float(R2),
+        "ci_low": float(ci_low),
+        "ci_high": float(ci_high),
+        "std_err": float(std_err),
+        "n_tail": int(len(x))
+    }
+
+
+# ----------------------------
+# Main experiment
+# ----------------------------
 
 def run_theorem_check(config_path: str, out_csv: str, out_dir: str, seed: int):
-    np.random.seed(seed)
-    
+    rng = np.random.default_rng(seed)
+
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
-    
+
     out_dir_path = Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
-    
-    results = []
-    
-    n_steps = config.get('n_steps', 2000)
+
+    results_summary = []
+
+    n_steps = int(config.get('n_steps', 2000))
+
+    # Escape threshold (classification)
     escape_radius = float(config.get('escape_radius', 1e3))
-    persist_steps = int(config.get('persist_steps', 50))
-    mode = config.get('mode', 'theorem_map')
-    
+
+    # Stop radius (data collection) - MUST be much larger than escape_radius
+    stop_radius = float(config.get('stop_radius', escape_radius * 1e6))
+
     sampling = config.get('sampling', {})
-    r_min = float(sampling.get('r_min', 1.0))
-    r_max = float(sampling.get('r_max', 10.0))
-    num_points = int(sampling.get('num_points', 100))
-    
+    r_min = float(sampling.get('r_min', 10.0))
+    r_max = float(sampling.get('r_max', 50.0))
+    num_points = int(sampling.get('num_points', 50))
+    margin_steps = int(sampling.get('wedge_margin_steps', 5))
+
     fit_cfg = config.get('fit', {})
     r_fit_min = float(fit_cfg.get('r_fit_min', 10.0))
-    r_fit_max = float(fit_cfg.get('r_fit_max', 1e5))
+    r_fit_max = float(fit_cfg.get('r_fit_max', stop_radius))
     tail_fraction = float(fit_cfg.get('tail_fraction', 0.4))
-    bootstrap_B = int(fit_cfg.get('bootstrap_B', 200))
-    
+    R2_min = float(fit_cfg.get('R2_min', 0.99))
+
     scan_cfg = config.get('wedge_scan', {})
-    tau = float(scan_cfg.get('tau', 0.9))
-    
-    param_list = config.get('params', [])
-    
-    from src.utils import extract_monotone_branch, filter_dominant_arm
-    
-    for i, p_cfg in enumerate(param_list):
-        # Extract params
+    alpha = float(scan_cfg.get('alpha', 2.0))
+
+    params_list = config.get('params', [])
+
+    from src.utils import extract_monotone_branch
+
+    for i, p_cfg in enumerate(params_list):
+        pid = f"param_{i}"
+
         theta = float(p_cfg.get('theta', 0.0))
         lam = complex(p_cfg.get('lam', 1.0))
         eps = complex(p_cfg.get('eps', 0.0))
         crash_radius = float(p_cfg.get('crash_radius', 1e-6))
-        
-        # Wedge scanning
-        pid = f"param_{i}"
-        
-        # --- 1) Estimated Wedge Scanning ---
-        wedge_found, phi_lo, phi_hi, wedge_width, wedge_valid_frac, r_grid, phi_grid, valid_mask = estimate_wedge_scanning(p_cfg, config)
-        
-        # Plot Wedge Map
+
+        # ----------------------------
+        # 1) Wedge scan
+        # ----------------------------
+        wedge_found, phi_lo, phi_hi, wedge_width, valid_frac, r_grid, phi_grid, valid_mask = estimate_wedge_option2(
+            theta=theta, lam=lam, eps=eps, alpha=alpha, scan_cfg=scan_cfg
+        )
+
+        # plot wedge map
         plt.figure(figsize=(10, 6))
-        plt.pcolormesh(phi_grid, np.log10(r_grid), valid_mask.astype(int), cmap='Greys', vmin=0, vmax=1, shading='auto')
-        plt.colorbar(label='Lemma Holds')
-        
-        # Only draw lines if wedge found
+        plt.pcolormesh(phi_grid, np.log10(r_grid), valid_mask.astype(int),
+                       cmap='Greys', vmin=0, vmax=1, shading='auto')
+        plt.colorbar(label='Option(2) holds')
+
         if wedge_found == 1:
-            plt.axvline(phi_lo, color='r', linestyle='--', label=f'Phi Lo: {phi_lo:.2f}')
-            plt.axvline(phi_hi, color='r', linestyle='--', label=f'Phi Hi: {phi_hi:.2f}')
-            
-        plt.xlabel('Phi')
-        plt.ylabel('log10(Radius)')
-        
-        title_str = f'Wedge Stability Scan: {pid}\nValid Fraction: {wedge_valid_frac:.2f}'
-        if wedge_found == 0:
-            title_str += f"\n(No valid wedge found at tau={tau})"
-        elif wedge_width < 0.1:
-            title_str += f"\n(Wedge too narrow: width={wedge_width:.3f})"
-            
-        plt.title(title_str)
+            plt.axvline(phi_lo, color='r', linestyle='--', label=f'phi_lo={phi_lo:.2f}')
+            plt.axvline(phi_hi, color='r', linestyle='--', label=f'phi_hi={phi_hi:.2f}')
+
+        plt.xlabel('phi')
+        plt.ylabel('log10(r)')
+        plt.title(f'Wedge Scan (Option 2): {pid}\nvalid_frac={valid_frac:.3f}, width={wedge_width:.3f}')
         plt.legend()
+        plt.tight_layout()
         plt.savefig(out_dir_path / f"wedge_map_{pid}.png")
         plt.close()
-        
-        # --- 2) Sample initial points ---
-        log_r = np.random.uniform(np.log(r_min), np.log(r_max), num_points)
+
+        # ----------------------------
+        # 2) seed angles in wedge
+        # ----------------------------
+        log_r = rng.uniform(np.log(r_min), np.log(r_max), num_points)
         rs = np.exp(log_r)
-        
+
         sampled_mode = "wedge"
-        if wedge_found == 0 or wedge_width < 0.1:
-             phis = np.random.uniform(-np.pi, np.pi, num_points)
-             sampled_mode = "fallback_full_circle" if wedge_found==1 else "no_wedge_full_circle"
+        if wedge_found == 0 or wedge_width < 1e-6:
+            phis = rng.uniform(-np.pi, np.pi, num_points)
+            sampled_mode = "fallback_full_circle"
         else:
-             phis = np.random.uniform(phi_lo, phi_hi, num_points)
-        
+            num_phi = int(scan_cfg.get('num_phi', 400))
+            phi_step = (float(scan_cfg.get('phi_max', np.pi)) - float(scan_cfg.get('phi_min', -np.pi))) / max(1, (num_phi - 1))
+            margin = margin_steps * phi_step
+            lo = phi_lo + margin
+            hi = phi_hi - margin
+            if hi <= lo:
+                lo, hi = phi_lo, phi_hi
+            phis = rng.uniform(lo, hi, num_points)
+
         z0s = rs * np.exp(1j * phis)
-        
-        # Check fraction of sampled points that are valid
-        valid_sample_count = sum(lemma_holds(r, p, p_cfg) for r, p in zip(rs, phis))
-        sampled_valid_fraction = valid_sample_count / num_points if num_points > 0 else 0
-        
-        # --- 3) Simulate ---
-        all_phi = []
-        all_logr = []
+
+        sampled_valid = 0
+        for r0, ph0 in zip(rs, phis):
+            if option2_condition_holds(r0, ph0, theta, lam, eps, alpha):
+                sampled_valid += 1
+        sampled_valid_fraction = sampled_valid / num_points if num_points > 0 else 0.0
+
+        # ----------------------------
+        # 3) simulate + collect per-orbit data
+        # ----------------------------
+        orbits = {}
         escaped_count = 0
         crashed_count = 0
-        points_used = 0
-        orbit_indices = [] 
-        
+        debug_counts = {"empty_traj": 0, "crashed": 0, "not_escaped": 0, "mask_fail": 0, "monotone_fail": 0, "success": 0}
+
         for idx, z0 in enumerate(z0s):
-            if mode == 'theorem_map':
-                traj = iterate_map(
-                    z0=z0,
-                    c=0j, 
-                    max_iter=n_steps,
-                    mode="theorem_map",
-                    theta=theta,
-                    lam=lam,
-                    eps=eps,
-                    crash_radius=crash_radius,
-                    escape_radius=escape_radius
-                )
-            else:
-                traj = iterate_map(
-                    z0=z0, c=0j, max_iter=n_steps, mode="controlled",
-                    escape_radius=escape_radius,
-                    omega=float(p_cfg.get('omega', 0.2)),
-                    radial_mode=p_cfg.get('radial_mode', 'additive'),
-                    delta=float(p_cfg.get('delta', 0.01)),
-                    alpha=float(p_cfg.get('alpha', 1.05)),
-                    phase_eps=float(p_cfg.get('phase_eps', 0.0))
-                )
-            
-            # Check status
-            if len(traj) > 0:
-                last_z = traj[-1]
-                if np.abs(last_z) < crash_radius:
-                    crashed_count += 1
-                elif np.abs(last_z) > escape_radius:
-                    # Persistence Check
-                    is_truly_escaped = True
-                    if persist_steps > 0:
-                        extra_traj = iterate_map(
-                            z0=last_z, c=0j, max_iter=persist_steps,
-                            mode=mode, theta=theta, lam=lam, eps=eps,
-                            crash_radius=crash_radius,
-                            escape_radius=1e20
-                        )
-                        if len(extra_traj) > 0 and np.any(np.abs(extra_traj) <= escape_radius):
-                            is_truly_escaped = False
-                    
-                    if is_truly_escaped:
-                        escaped_count += 1
-                        
-                        r_traj = np.abs(traj)
-                        mask = (r_traj >= r_fit_min) & (r_traj <= r_fit_max)
-                        
-                        if np.sum(mask) > 1:
-                            # Full unwrap for safety
-                            phi_full = np.unwrap(np.angle(traj))
-                            
-                            # Apply mask
-                            phi_valid = phi_full[mask]
-                            r_valid = r_traj[mask]
-                            log_r_valid = np.log(r_valid)
-                            
-                            # Monotone Branch Isolation
-                            phi_seg, logr_seg = extract_monotone_branch(phi_valid, log_r_valid, min_len=2)
-                            
-                            if len(phi_seg) > 0:
-                                all_logr.append(logr_seg)
-                                all_phi.append(phi_seg)
-                                orbit_indices.extend([idx] * len(phi_seg))
-                                points_used += len(phi_seg)
-        
-        escape_fraction = escaped_count / num_points if num_points > 0 else 0
-        
-        # --- 4) Fit ---
-        k_hat = np.nan
-        ci_low = np.nan
-        ci_high = np.nan
-        
-        if len(all_logr) > 0:
-            flat_logr = np.concatenate(all_logr)
-            flat_phi = np.concatenate(all_phi)
-            orbit_indices_arr = np.array(orbit_indices)
-            
-            # Dominant Arm Filter (Fix 1 Part 2)
-            if len(flat_logr) > 10:
-                res_temp = stats.linregress(flat_logr, flat_phi)
-                psi = flat_phi - res_temp.slope * flat_logr
-                psi_mod = np.mod(psi, 2 * np.pi)
-                hist, bin_edges = np.histogram(psi_mod, bins=30, range=(0, 2*np.pi))
-                best_bin = np.argmax(hist)
-                center = (bin_edges[best_bin] + bin_edges[best_bin+1])/2
-                hw = (bin_edges[1] - bin_edges[0]) * 2.5
-                dist = np.abs(psi_mod - center)
-                dist = np.minimum(dist, 2*np.pi - dist)
-                mask_dom = dist < hw
-                if np.sum(mask_dom) >= 5:
-                    flat_logr = flat_logr[mask_dom]
-                    flat_phi = flat_phi[mask_dom]
-                    orbit_indices_arr = orbit_indices_arr[mask_dom]
-            
-            # Radius-Ordered Tail-Only Fitting (Fix 3)
-            sort_idx = np.argsort(flat_logr)
-            flat_logr = flat_logr[sort_idx]
-            flat_phi = flat_phi[sort_idx]
-            orbit_indices_arr = orbit_indices_arr[sort_idx]
-            
-            n_total = len(flat_logr)
-            start_idx = int((1.0 - tail_fraction) * n_total)
-            if start_idx < n_total - 5:
-                flat_logr = flat_logr[start_idx:]
-                flat_phi = flat_phi[start_idx:]
-                orbit_indices_arr = orbit_indices_arr[start_idx:]
-            
-            if len(flat_logr) > 5:
-                slope, intercept, r_val, p_val, std_err = stats.linregress(flat_logr, flat_phi)
-                k_hat = slope
-                
-                # Bootstrap
-                unique_orbits = np.unique(orbit_indices_arr)
-                n_orbits_fit = len(unique_orbits)
-                
-                if n_orbits_fit > 2:
-                    boot_slopes = []
-                    orbit_map = {}
-                    for oi, lr, ph in zip(orbit_indices_arr, flat_logr, flat_phi):
-                        if oi not in orbit_map: orbit_map[oi] = ([], [])
-                        orbit_map[oi][0].append(lr)
-                        orbit_map[oi][1].append(ph)
-                    
-                    valid_orbit_ids = list(orbit_map.keys())
-                    n_valid = len(valid_orbit_ids)
-                    
-                    for _ in range(bootstrap_B):
-                        resample_ids = np.random.choice(valid_orbit_ids, n_valid, replace=True)
-                        boot_logr = []
-                        boot_phi = []
-                        for rid in resample_ids:
-                            boot_logr.extend(orbit_map[rid][0])
-                            boot_phi.extend(orbit_map[rid][1])
-                        
-                        if len(boot_logr) > 2:
-                            s, _, _, _, _ = stats.linregress(boot_logr, boot_phi)
-                            boot_slopes.append(s)
-                    
-                    if boot_slopes:
-                        ci_low = np.percentile(boot_slopes, 2.5)
-                        ci_high = np.percentile(boot_slopes, 97.5)
-            
-            # Plot
-            plt.figure(figsize=(8, 6))
-            plot_indices = np.random.choice(len(flat_logr), min(2000, len(flat_logr)), replace=False)
-            plt.scatter(flat_logr[plot_indices], flat_phi[plot_indices], alpha=0.3, s=5, label='Traj points (Filtered)')
-            
-            if not np.isnan(k_hat):
-                x_vals = np.array([np.min(flat_logr), np.max(flat_logr)])
-                y_vals = k_hat * x_vals + intercept
-                plt.plot(x_vals, y_vals, 'r--', lw=2, label=f'Fit k={k_hat:.3f}')
-            
-            plt.title(f"Theorem Check: {pid}\nk_hat={k_hat:.3f} CI[{ci_low:.3f}, {ci_high:.3f}]")
+            traj = iterate_map(
+                z0=z0,
+                c=0j,
+                max_iter=n_steps,
+                mode="theorem_map",
+                theta=theta,
+                lam=lam,
+                eps=eps,
+                crash_radius=crash_radius,
+
+                # IMPORTANT:
+                # escape_radius = classification threshold (1e3)
+                # stop_radius = hard stop for data collection (1e12)
+                # stop_on_escape=False so we don't stop at escape_radius
+                escape_radius=escape_radius,
+                stop_radius=stop_radius,
+                stop_on_escape=False
+            )
+
+            if len(traj) == 0:
+                debug_counts["empty_traj"] += 1
+                continue
+
+            # Debug: show trajectory details for first few orbits
+            if idx < 3:
+                r_vals = np.abs(traj)
+                print(f"  orbit {idx}: len={len(traj)}, r values: {[f'{r:.2e}' for r in r_vals[:10]]}")
+
+            # crash detection
+            if np.any(np.abs(traj) < crash_radius):
+                crashed_count += 1
+                debug_counts["crashed"] += 1
+                continue
+
+            # escape detection (classification threshold)
+            did_escape = bool(np.any(np.abs(traj) > escape_radius))
+            if not did_escape:
+                debug_counts["not_escaped"] += 1
+                continue
+
+            escaped_count += 1
+
+            r_traj = np.abs(traj)
+            phi_full = np.unwrap(np.angle(traj))
+
+            mask = (r_traj >= r_fit_min) & (r_traj <= r_fit_max)
+            n_mask = np.sum(mask)
+            if n_mask < 3:
+                debug_counts["mask_fail"] += 1
+                if idx == 0:  # Debug first orbit
+                    print(f"DEBUG param {pid} orbit {idx}: traj_len={len(traj)}, r_range=[{r_traj.min():.2e}, {r_traj.max():.2e}], n_in_window={n_mask}")
+                continue
+
+            phi_valid = phi_full[mask]
+            logr_valid = np.log(r_traj[mask])
+
+            phi_seg, logr_seg = extract_monotone_branch(phi_valid, logr_valid, min_len=2)
+            if len(phi_seg) < 3:
+                debug_counts["monotone_fail"] += 1
+                continue
+
+            debug_counts["success"] += 1
+            orbits[idx] = {
+                "logr": np.array(logr_seg, dtype=float),
+                "phi": np.array(phi_seg, dtype=float),
+                "r0": float(abs(z0)),
+                "phi0": float(np.angle(z0)),
+            }
+
+        escape_fraction = escaped_count / num_points if num_points > 0 else 0.0
+
+        # Debug output
+        print(f"\n{pid} debug counts: {debug_counts}")
+        print(f"{pid}: escaped={escaped_count}, crashed={crashed_count}, orbits_collected={len(orbits)}")
+
+        # ----------------------------
+        # 4) per-orbit fits + pass
+        # ----------------------------
+        orbit_rows = []
+        fit_fail_count = 0
+        for oid, d in orbits.items():
+            fit = fit_orbit_tail(d["logr"], d["phi"], tail_fraction=tail_fraction)
+            if fit is None:
+                fit_fail_count += 1
+                if fit_fail_count <= 3:
+                    print(f"  Fit failed for orbit {oid}: len={len(d['logr'])}")
+                continue
+
+            kp = kappa_pred(d["phi0"], d["r0"], lam)
+            passed = (fit["R2"] >= R2_min) and (fit["ci_low"] <= kp <= fit["ci_high"])
+
+            orbit_rows.append({
+                "param_id": pid,
+                "orbit_id": int(oid),
+                "r0": d["r0"],
+                "phi0": d["phi0"],
+                "k_pred": float(kp),
+                "k_hat": fit["k_hat"],
+                "ci_low": fit["ci_low"],
+                "ci_high": fit["ci_high"],
+                "R2": fit["R2"],
+                "n_tail": fit["n_tail"],
+                "pass": int(passed),
+            })
+
+        df_orbits = pd.DataFrame(orbit_rows)
+        orbit_csv_path = out_dir_path / f"theorem_check_orbits_{pid}.csv"
+        df_orbits.to_csv(orbit_csv_path, index=False)
+
+        pass_rate = float(df_orbits["pass"].mean()) if len(df_orbits) > 0 else np.nan
+
+        # ----------------------------
+        # 5) plots
+        # ----------------------------
+        if len(df_orbits) > 0:
+            show_n = min(6, len(df_orbits))
+            chosen_orbits = df_orbits.sample(n=show_n, random_state=seed)["orbit_id"].tolist()
+
+            plt.figure(figsize=(10, 7))
+            for oid in chosen_orbits:
+                d = orbits[int(oid)]
+                fit = fit_orbit_tail(d["logr"], d["phi"], tail_fraction=tail_fraction)
+                if fit is None:
+                    continue
+
+                plt.plot(d["logr"], d["phi"], alpha=0.6, linewidth=1)
+
+                x = d["logr"]
+                n = len(x)
+                start = int((1.0 - tail_fraction) * n)
+                x_tail = x[start:]
+                y_line = fit["k_hat"] * x_tail + fit["intercept"]
+                plt.plot(x_tail, y_line, linestyle="--", linewidth=2)
+
+            plt.title(f"Sample per-orbit spiral fits (phi vs log r): {pid}")
             plt.xlabel("log(r)")
-            plt.ylabel("phi")
-            plt.legend()
+            plt.ylabel("unwrapped phi")
             plt.grid(True, alpha=0.3)
-            plt.savefig(out_dir_path / f"theorem_phi_logr_{pid}.png")
+            plt.tight_layout()
+            plt.savefig(out_dir_path / f"orbits_phi_logr_fits_{pid}.png")
             plt.close()
 
-        results.append({
-            'param_id': pid,
-            'theta': theta,
-            'lam': str(lam),
-            'eps': str(eps),
-            'wedge_found': wedge_found,
-            'phi_lo': phi_lo,
-            'phi_hi': phi_hi,
-            'wedge_width': wedge_width,
-            'wedge_valid_fraction': wedge_valid_frac,
-            'sampled_valid_fraction': sampled_valid_fraction,
-            'sampled_mode': sampled_mode,
-            'k_hat': k_hat,
-            'ci_low': ci_low,
-            'ci_high': ci_high,
-            'n_orbits': escaped_count, 
-            'n_crashed': crashed_count,
-            'n_points_used': points_used,
-            'escape_fraction': escape_fraction,
-            'tail_fraction': tail_fraction,
-            'wedge_tau': tau,
-            'wedge_eta': float(p_cfg.get('wedge_eta', 0.3))
-        })
-    
-    # Save CSV
-    df = pd.DataFrame(results)
-    df.to_csv(out_csv, index=False)
-    print(f"Saved results to {out_csv}")
-    
-    # Summary plot
-    if len(results) > 1:
-        plt.figure()
-        valid_res = df.dropna(subset=['k_hat'])
-        if not valid_res.empty:
-            plt.errorbar(
-                range(len(valid_res)), 
-                valid_res['k_hat'], 
-                yerr=[valid_res['k_hat']-valid_res['ci_low'], valid_res['ci_high']-valid_res['k_hat']], 
-                fmt='o'
-            )
-            plt.xticks(range(len(valid_res)), valid_res['param_id'], rotation=45)
-            plt.ylabel("Estimated Kappa (k_hat)")
-            plt.title("Kappa Agreement")
+            # k_pred vs k_hat
+            plt.figure(figsize=(7, 6))
+            x = df_orbits["k_pred"].values
+            y = df_orbits["k_hat"].values
+            yerr_low = y - df_orbits["ci_low"].values
+            yerr_high = df_orbits["ci_high"].values - y
+            plt.errorbar(x, y, yerr=[yerr_low, yerr_high], fmt="o", alpha=0.8)
+
+            mn = np.nanmin(np.concatenate([x, y]))
+            mx = np.nanmax(np.concatenate([x, y]))
+            plt.plot([mn, mx], [mn, mx], linestyle="--", linewidth=2)
+
+            plt.title(f"kappa agreement (per orbit): {pid}\npass_rate={pass_rate:.2f}")
+            plt.xlabel("k_pred")
+            plt.ylabel("k_hat")
+            plt.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig(out_dir_path / "kappa_agreement.png")
+            plt.savefig(out_dir_path / f"kappa_pred_vs_hat_{pid}.png")
             plt.close()
+
+        # ----------------------------
+        # 6) summary row
+        # ----------------------------
+        results_summary.append({
+            "param_id": pid,
+            "theta": theta,
+            "lam": str(lam),
+            "eps": str(eps),
+            "alpha": alpha,
+            "wedge_found": wedge_found,
+            "phi_lo": phi_lo,
+            "phi_hi": phi_hi,
+            "wedge_width": wedge_width,
+            "wedge_valid_fraction": valid_frac,
+            "sampled_valid_fraction": sampled_valid_fraction,
+            "sampled_mode": sampled_mode,
+            "num_points": num_points,
+            "escaped_count": escaped_count,
+            "crashed_count": crashed_count,
+            "escape_fraction": escape_fraction,
+            "num_orbits_fit": int(len(df_orbits)),
+            "pass_rate": pass_rate,
+            "R2_min": R2_min,
+            "tail_fraction": tail_fraction,
+            "r_fit_min": r_fit_min,
+            "r_fit_max": r_fit_max,
+            "escape_radius": escape_radius,
+            "stop_radius": stop_radius,
+            "orbit_csv": str(orbit_csv_path)
+        })
+
+    df_sum = pd.DataFrame(results_summary)
+    df_sum.to_csv(out_csv, index=False)
+    print(f"Saved summary to {out_csv}")
+    print(f"Saved per-orbit CSVs in {out_dir_path}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -328,5 +517,5 @@ if __name__ == "__main__":
     parser.add_argument("--outdir", required=True)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
-    
+
     run_theorem_check(args.config, args.outcsv, args.outdir, args.seed)
