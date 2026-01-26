@@ -1,35 +1,40 @@
-# Config for Phase Diagram (Step 4.2)
-# Sweeps lam/eps space to classify regions as "spiral/unbounded" and compare with theory.
+# Phase diagram config: stable rotation fraction (Δphi tail variance test)
 
-# Sweep settings
-theta: 0.1
-wedge_eta: 0.3
-crash_radius: 1e-6
-escape_radius: 100.0
-max_iter: 1000
+lam: "1+0j"
+alpha: 2.0
 
-sweep:
-  lam:
-    min: 0.01
-    max: 2.0
-    steps: 20
-    scale: 'linear' # or log
-  eps:
-    min: 0.0
-    max: 2.0
-    steps: 20
-    scale: 'linear'
+theta_min: 0.0
+theta_max: 6.283185307179586
+num_theta: 25
 
-# Simulation check
-check:
-  num_angles: 50
-  num_points_check: 20 # points to check for pitch estimation
-  # We do a lightweight check: just verify if we find a wedge and if orbits escape with consistent pitch.
-  min_escape_fraction: 0.1
-  tail_fraction: 0.4
-  fit_r_min: 10.0
-  fit_r_max: 100.0
+eps_abs_min: 0.0
+eps_abs_max: 0.6
+num_eps: 25
 
-# Theory overlay
-theory:
-  conservative_R0: 5.0 # R0 for sufficiency condition
+n_steps: 2000
+escape_radius: 1000.0
+stop_radius: 1.0e100
+crash_radius: 1.0e-6
+
+sampling:
+  r_min: 10.0
+  r_max: 50.0
+  num_points: 60
+  wedge_margin_steps: 5
+
+wedge_scan:
+  # scan to estimate wedge via Option (2)
+  alpha: 2.0
+  r_scan_min: 10.0
+  r_scan_max: 200.0
+  num_r_scan: 25
+  phi_min: -3.141592653589793
+  phi_max: 3.141592653589793
+  num_phi: 400
+  tau: 0.9
+
+# --- stability test ---
+dphi_var_thresh: 0.2
+tail_fraction: 0.4
+min_tail_points: 12
+r_fit_min: 25.0
