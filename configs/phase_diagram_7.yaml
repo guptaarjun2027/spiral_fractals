@@ -36,5 +36,5 @@ wedge_scan:
 # --- stability test ---
 dphi_var_thresh: 0.2
 tail_fraction: 0.4
-min_tail_points: 6       # IMPORTANT: 6–7 feasible; 8+ infeasible due to explosive growth
+min_tail_points: 7       # IMPORTANT: 6–7 feasible; 8+ infeasible due to explosive growth
 r_fit_min: 25.0
