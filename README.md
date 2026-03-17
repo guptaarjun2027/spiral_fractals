@@ -1,77 +1,11 @@
-Structural Decoupling in Perturbed Quadratic Maps
+OVERVIEW
 
-SEFMD Science & Engineering Fair Project
-Category: Mathematics / Dynamical Systems
+This project studies how trajectories behave in a perturbed quadratic complex dynamical system. In many complex maps, once an orbit moves far enough away from the origin, the highest-degree term dominates the dynamics and trajectories are expected to stabilize into predictable shapes such as logarithmic spirals. Our work tests whether that assumption still holds when the system is perturbed. We analyze the map F(z) = e^(iθ)z + λz² + εz⁻², which combines rotation, quadratic growth, and a perturbation term near the origin. The main discovery is that radial escape and spiral structure are not coupled. Even when trajectories escape outward due to quadratic growth, their angular behavior does not stabilize into a consistent spiral. This reveals a structural decoupling between radial growth and spiral pitch.
 
-Authors:
-Rohan Nagaram
-Arjun Gupta
-Himanish Pasula
+DRIVING COMPUTATIONS
 
-Overview
+To test the spiral convergence assumption, we ran large-scale numerical simulations of the map. We generated roughly 1.44 million trajectories from a dense 1200 × 1200 grid of initial points in the complex plane. Each point was iterated until the orbit either remained bounded near the origin or escaped past a chosen radius threshold. To study the asymptotic regime where the quadratic term should dominate, we only analyzed trajectories that reached radius r ≥ 20. For these trajectories we measured angular change and estimated spiral pitch using log-polar regression. This allowed us to compare the predicted spiral pitch with the pitch actually observed in the simulations.
 
-This project studies escape dynamics in a perturbed quadratic complex map:
+PRIMARY STUDY
 
-F(z) = e^(iθ)z + λz² + εz⁻²
-
-The system contains:
-
-rotational dynamics
-
-quadratic radial growth
-
-an inverse perturbation term
-
-We investigate whether escaping trajectories converge to a logarithmic spiral geometry.
-
-Research Question
-
-Does radial escape in a perturbed quadratic complex map guarantee convergence to a logarithmic spiral spiral pitch?
-
-Key Finding
-
-Radial escape does not guarantee geometric stabilization.
-
-Even after trajectories reach regions where quadratic growth dominates, spiral pitch does not converge to the predicted logarithmic relation:
-
-φ ≈ κ log r
-
-This indicates a structural decoupling between escape dynamics and spiral geometry.
-
-Repository Contents
-spiral_fractals/
-
-fractal_generator.py
-trajectory_simulation.py
-angular_stability_analysis.py
-phase_space_visualization.py
-
-These scripts generate:
-
-escape-time fractals
-
-trajectory simulations
-
-angular stability diagnostics
-
-phase-space flow visualizations
-
-Running the Code
-
-Install dependencies:
-
-pip install numpy matplotlib scipy
-
-Run simulations:
-
-python fractal_generator.py
-python angular_stability_analysis.py
-
-Figures will be saved automatically.
-
-References
-
-Milnor — Dynamics in One Complex Variable
-Devaney — An Introduction to Chaotic Dynamical Systems
-Peitgen et al. — Chaos and Fractals
-Carleson & Gamelin — Complex Dynamics
+The goal of the study was to test whether escaping trajectories converge to a stable spiral geometry. Our results show that they do not. Spiral pitch varies widely between trajectories and does not converge to the predicted value even after trajectories enter the outer escape regime. We prove that outside a certain radius, the quadratic term guarantees outward radial growth. However, this guarantee only applies to magnitude, not to angular structure. Perturbations near the origin distort the angular trajectory early on, and those distortions persist even as the orbit escapes outward. As a result, trajectories escape to infinity but do not stabilize into logarithmic spirals. This demonstrates that radial escape does not guarantee geometric stabilization in perturbed quadratic complex maps.
